@@ -5,12 +5,15 @@ import { estimatePending, type Estimate } from "@/lib/pipeline/db";
 import { formatUsd } from "@/lib/llm/cost";
 import { autorizarAvaliacao, buscarVagas, descartarPendentes } from "./actions";
 import { prepararCandidatura } from "../candidaturas/actions";
+import { nextSlots } from "@/lib/schedule";
+import { ConexoesTab, PostsTab } from "./social";
 
 const btn = { padding: "10px 16px", borderRadius: 6, border: 0, background: "#2F6FB5", color: "#fff", cursor: "pointer", marginRight: 8 };
 const ghost = { ...btn, background: "#444" };
 
-export default async function Painel({ searchParams }: { searchParams: Promise<{ msg?: string; erro?: string }> }) {
-  const { msg, erro } = await searchParams;
+export default async function Painel({ searchParams }: { searchParams: Promise<{ msg?: string; erro?: string; aba?: string }> }) {
+  const { msg, erro, aba: abaRaw } = await searchParams;
+  const aba = abaRaw === "posts" || abaRaw === "conexoes" ? abaRaw : "vagas";
   const { sb, user } = await requireUser();
   if (!user) redirect("/login");
   const { data: prof } = await sb.from("ls_profiles").select("onboarding_completed_at, llm_key_encrypted").eq("user_id", user.id).single();
@@ -26,12 +29,26 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
   const { data: apps } = await sb.from("ls_applications").select("id, job_id, status").eq("user_id", user.id);
   const appByJob = new Map((apps ?? []).map((a) => [a.job_id, a]));
 
+  const { data: cs } = await sb.from("ls_content_settings").select("pillars, post_days, post_time").eq("user_id", user.id).single();
+  const pillars = ((cs?.pillars ?? []) as { name?: string }[]).map((p) => p.name ?? "").filter(Boolean);
+  const slots = nextSlots(cs?.post_days ?? [1, 3, 5], String(cs?.post_time ?? "09:00").slice(0, 5), 3);
+  const { data: posts } = aba === "posts" ? await sb.from("ls_posts").select("id, title, body, pillar, language, status, scheduled_for").eq("user_id", user.id).order("created_at", { ascending: false }) : { data: [] };
+  const { data: conns } = aba === "conexoes" ? await sb.from("ls_connections").select("id, name, company, role, profile_url, note, status, follow_up_at").eq("user_id", user.id).order("created_at", { ascending: false }) : { data: [] };
+
   return (
     <>
       <h1>Painel</h1>
       {erro && <p style={{ color: "#ff8a80" }}>{erro}</p>}
       {msg && <p style={{ background: "#2b3138", padding: 12, borderRadius: 6 }}>{msg}</p>}
 
+      <nav style={{ display: "flex", gap: 8, margin: "8px 0 16px" }}>
+        {([["vagas", "Vagas"], ["posts", "Posts"], ["conexoes", "Conexões"]] as const).map(([k, l]) => (
+          <Link key={k} href={`/painel?aba=${k}`} style={{ padding: "8px 14px", borderRadius: 6, textDecoration: "none", color: "#fff", background: aba === k ? "#2F6FB5" : "#2b3138" }}>{l}</Link>
+        ))}
+      </nav>
+      {aba === "posts" && <PostsTab posts={posts ?? []} slots={slots.map((d) => d.toISOString())} pillars={pillars} />}
+      {aba === "conexoes" && <ConexoesTab conns={conns ?? []} />}
+      {aba === "vagas" && <>
       <form action={buscarVagas}><button style={btn}>Buscar vagas (grátis)</button></form>
       <p style={{ color: "#aab2bd", fontSize: 14 }}>A busca não custa nada. A avaliação com o Claude é paga e só roda depois que você autorizar o valor.</p>
 
@@ -66,6 +83,7 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
           <ul style={{ fontSize: 14, color: "#cfd6df" }}>{((j.score_justification ?? []) as string[]).map((t, i) => <li key={i}>{t}</li>)}</ul>
         </article>
       ))}
+      </>}
     </>
   );
 }
