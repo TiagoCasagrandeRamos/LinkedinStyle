@@ -73,3 +73,11 @@ export function estimateConnections(resumeChars: number, briefingChars: number, 
   const base = estimateText(Math.min(resumeChars, MAX_RESUME_FOR_CONTENT) + briefingChars + Math.min(jobChars, 3000) + 1800, OUT_CONNECTIONS);
   return { input: base.input + MAX_SEARCHES * TOKENS_PER_SEARCH, output: base.output, searches: MAX_SEARCHES };
 }
+
+export const OUT_SCRIPT = 600;
+export const OUT_TEXT = 1100;
+export const estimateScript = (resumeChars: number, briefingChars: number, topicChars: number): Usage =>
+  estimateText(Math.min(resumeChars, MAX_RESUME_FOR_CONTENT) + briefingChars + topicChars + 700, OUT_SCRIPT);
+export const estimateTextGen = (resumeChars: number, briefingChars: number, scriptChars: number): Usage =>
+  estimateText(Math.min(resumeChars, MAX_RESUME_FOR_CONTENT) + briefingChars + scriptChars + 900, OUT_TEXT);
+export const estimateAngles = (count: number, titleChars: number): Usage => estimateText(titleChars + 500, 60 * Math.max(1, count));

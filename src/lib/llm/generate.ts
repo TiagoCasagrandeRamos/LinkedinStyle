@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { DEFAULT_MODEL, MAX_RESUME_FOR_CONTENT, MAX_SAMPLE_CHARS, MAX_SEARCHES, OUT_CONNECTIONS, OUT_LEARN, OUT_PILLARS, OUT_PREVIEW, type ConnUsage, type Usage } from "./cost";
-import { parsePeople, verifyPeople } from "../network";
+import { parsePeople, sanitizeText, verifyPeople } from "../network";
 import { validateSuggestions } from "../pillars";
 import { TRAIT_KEYS, normalizeWeights, type TraitWeights } from "../writing/traits";
 
@@ -130,4 +130,56 @@ Quando terminar de buscar, chame a ferramenta registrar_pessoas com a lista (vaz
   let people: ReturnType<typeof parsePeople> = [];
   try { people = parsePeople(structured ? JSON.stringify(structured) : text); } catch { people = []; }
   return { ...verifyPeople(people, seen), usage, searchedUrls: seen.length };
+}
+
+export interface TopicRef { id: string; title: string; pillar: string }
+
+/** Uma linha de ângulo por pauta, em uma chamada só. */
+export async function suggestAngles(apiKey: string, topics: TopicRef[]) {
+  const system = `Para cada notícia, escreva um ângulo em uma linha (até 140 caracteres): a leitura própria que um profissional de gestão de projetos, atendimento e IA poderia fazer sobre ela. Não afirme nada além do que o título diz. Sem travessão e sem emoji. ${UNTRUSTED}`;
+  const user = topics.map((t) => `<pauta id="${t.id}" pilar="${t.pillar.replace(/"/g, "'")}">${t.title.slice(0, 300)}</pauta>`).join("\n");
+  const r = await askStructured(apiKey, system, user, 60 * topics.length + 200, {
+    name: "registrar_angulos", description: "Registra o ângulo de cada pauta.",
+    schema: { type: "object", required: ["angles"], properties: { angles: { type: "array", items: { type: "object", required: ["id", "angle"], properties: { id: { type: "string" }, angle: { type: "string" } } } } } },
+  });
+  const ids = new Set(topics.map((t) => t.id));
+  const list = ((r.input as { angles?: { id?: string; angle?: string }[] }).angles ?? []).filter((a) => a.id && ids.has(a.id) && a.angle);
+  return { angles: list.map((a) => ({ id: a.id as string, angle: sanitizeText(String(a.angle)).slice(0, 200) })), usage: r.usage };
+}
+
+export interface PostContext {
+  resume: string; briefing: string; pillar: string; title: string; angle: string; language: "pt" | "en";
+  source?: { title: string; name: string; date: string } | null;
+}
+
+const lang = (l: "pt" | "en") => (l === "pt" ? "português do Brasil" : "inglês");
+const sourceBlock = (s?: PostContext["source"]) => (s ? `<fonte>${s.name}, ${s.date.slice(0, 10)}: ${s.title}</fonte>` : "<fonte>sem fonte</fonte>");
+
+export async function generateScript(apiKey: string, c: PostContext) {
+  const system = `Você monta o roteiro de um post de LinkedIn em ${lang(c.language)}. O roteiro é a estrutura, não o texto final.
+Campos: hook (a primeira linha, a que aparece antes do ver mais, forte e específica), beats (de 3 a 5 blocos, cada um em uma frase curta), closing (pergunta ou posicionamento) e resume_data (quais dados do currículo entram, só se entrar algum, citados como estão no currículo; lista vazia se nenhum).
+Se houver fonte, o roteiro deve respeitar o que a fonte diz, sem afirmar além do título. Use só fatos do currículo e da fonte, sem inventar números. Siga o briefing de tom. ${UNTRUSTED}`;
+  const user = `<briefing_de_tom>\n${c.briefing}\n</briefing_de_tom>\n<pilar>${c.pillar}</pilar>\n<titulo>${c.title}</titulo>\n<angulo>${c.angle}</angulo>\n${sourceBlock(c.source)}\n<curriculo>\n${c.resume.slice(0, MAX_RESUME_FOR_CONTENT)}\n</curriculo>`;
+  const r = await askStructured(apiKey, system, user, 900, {
+    name: "registrar_roteiro", description: "Registra o roteiro do post.",
+    schema: { type: "object", required: ["hook", "beats", "closing", "resume_data"], properties: {
+      hook: { type: "string" }, beats: { type: "array", minItems: 3, maxItems: 5, items: { type: "string" } }, closing: { type: "string" }, resume_data: { type: "array", items: { type: "string" } },
+    } },
+  });
+  const o = r.input as { hook?: string; beats?: string[]; closing?: string; resume_data?: string[] };
+  return { script: { hook: sanitizeText(o.hook ?? ""), beats: (o.beats ?? []).map(sanitizeText), closing: sanitizeText(o.closing ?? ""), resume_data: (o.resume_data ?? []).map(sanitizeText) }, usage: r.usage };
+}
+
+export async function generatePostText(apiKey: string, c: PostContext & { script: { hook: string; beats: string[]; closing: string; resume_data: string[] }; secondary: "pt" | "en" | null }) {
+  const system = `Escreva o post de LinkedIn em ${lang(c.language)} a partir do roteiro aprovado, na primeira pessoa, de 80 a 220 palavras. A primeira linha é o gancho do roteiro. Siga os beats na ordem e termine com o fechamento.
+${c.secondary ? `Escreva também a versão em ${lang(c.secondary)}: adaptada ao leitor desse idioma, não traduzida ao pé da letra.` : "Não escreva versão em outro idioma."}
+Siga o briefing de tom à risca, incluindo a lista do que evitar. Use só fatos do roteiro, da fonte e do currículo, sem inventar número, empresa ou resultado. Se houver fonte, cite o nome dela no texto.`;
+  const user = `<briefing_de_tom>\n${c.briefing}\n</briefing_de_tom>\n<pilar>${c.pillar}</pilar>\n${sourceBlock(c.source)}\n<roteiro>\n${JSON.stringify(c.script)}\n</roteiro>\n<curriculo>\n${c.resume.slice(0, MAX_RESUME_FOR_CONTENT)}\n</curriculo>`;
+  const r = await askStructured(apiKey, system + ` ${UNTRUSTED}`, user, 1500, {
+    name: "registrar_texto", description: "Registra o texto do post.",
+    schema: { type: "object", required: ["primary"], properties: { primary: { type: "string" }, secondary: { type: "string" } } },
+  });
+  const o = r.input as { primary?: string; secondary?: string };
+  if (!o.primary) throw new Error("o modelo não devolveu o texto");
+  return { primary: o.primary.trim(), secondary: c.secondary && o.secondary ? o.secondary.trim() : null, usage: r.usage };
 }

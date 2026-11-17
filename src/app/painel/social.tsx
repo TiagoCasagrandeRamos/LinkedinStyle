@@ -1,11 +1,13 @@
 import { gerarRascunho } from "./draft-actions";
+import { aprovarPauta, buscarPauta, descartarPauta, editarTitulo, sugerirAngulos } from "./radar-actions";
+import { REASON_LABEL, reasonText, type DiscardReason } from "@/lib/topics";
 import { sugerirConexoes } from "./network-actions";
 import CopyButton from "./copy-button";
 import { linkedinPeopleSearch } from "@/lib/network";
 import { formatUsd } from "@/lib/llm/cost";
 import { criarConexao, apagarConexao, apagarPost, criarPost, marcarPost, mudarConexao } from "./social-actions";
 
-type Post = { id: string; title: string | null; body: string; pillar: string | null; language: string; status: string; scheduled_for: string | null };
+type Post = { failed: boolean; id: string; title: string | null; body: string; pillar: string | null; language: string; status: string; scheduled_for: string | null };
 type Conn = { invite_note: string | null; followup_message: string | null; reason: string | null; kind: string; id: string; name: string; company: string | null; role: string | null; profile_url: string | null; note: string | null; status: string; follow_up_at: string | null };
 
 const btn = { padding: "8px 14px", borderRadius: 6, border: 0, background: "#2F6FB5", color: "#fff", cursor: "pointer", marginRight: 8 } as const;
@@ -15,9 +17,9 @@ const card = { border: "1px solid #3a4048", borderRadius: 8, padding: 14, margin
 const fmt = (iso: string) => new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
 const STATUS_CONN: Record<string, string> = { para_abordar: "Para abordar", abordado: "Abordado", respondeu: "Respondeu", conectado: "Conectado" };
 
-export type PautaPillar = { name: string; color: string; items: { title: string; link: string; source: string; date: string }[]; error?: string };
+export type TopicRow = { id: string; pillar: string; pillar_color: string | null; title: string; angle: string | null; source_name: string | null; source_url: string; source_date: string | null; keyword: string | null; rank_score: number };
 
-export function PostsTab({ posts, slots, pillars, pauta, draftUsd, hasKey }: { posts: Post[]; slots: string[]; pillars: string[]; pauta: PautaPillar[] | null; draftUsd: number; hasKey: boolean }) {
+export function PostsTab({ posts, slots, pillars, topics, angleUsd, draftUsd, hasKey }: { posts: Post[]; slots: string[]; pillars: string[]; topics: TopicRow[]; angleUsd: number; draftUsd: number; hasKey: boolean }) {
   return (
     <>
       <section style={card}>
@@ -25,25 +27,38 @@ export function PostsTab({ posts, slots, pillars, pauta, draftUsd, hasKey }: { p
         <p style={{ color: "#aab2bd", fontSize: 14 }}>{slots.length ? slots.map(fmt).join(" · ") : "Defina dias e horário no onboarding (etapa 3)."}</p>
       </section>
       <section style={card}>
-        <strong>Radar de notícias</strong>
-        <p style={{ color: "#aab2bd", fontSize: 14 }}>Busca notícias dos últimos 7 dias pelas palavras-chave de cada pilar. É grátis, não usa o Claude.</p>
-        <a href="/painel?aba=posts&pauta=1" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>Buscar pauta do dia</a>
-        {pauta && (
-          <>
-            <h3>Pauta de {new Date().toLocaleDateString("pt-BR", { dateStyle: "full", timeZone: "America/Sao_Paulo" })}</h3>
-            {pauta.length === 0 && <p>Nenhum pilar com palavras-chave. Edite os pilares no onboarding (etapa 4).</p>}
-            {pauta.map((p) => (
-              <div key={p.name} style={{ borderLeft: `4px solid ${p.color}`, paddingLeft: 10, margin: "10px 0" }}>
-                <strong style={{ color: p.color }}>{p.name}</strong>
-                {p.error && <p style={{ color: "#ffd180" }}>Não consegui buscar: {p.error}</p>}
-                {!p.error && p.items.length === 0 && <p style={{ color: "#aab2bd" }}>Nada novo nesta semana.</p>}
-                <ul style={{ margin: "6px 0", paddingLeft: 18 }}>
-                  {p.items.map((n) => <li key={n.link}><a href={n.link} style={{ color: "#6aa7e8" }}>{n.title}</a> <span style={{ color: "#aab2bd", fontSize: 13 }}>({n.source}, {new Date(n.date).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })})</span></li>)}
-                </ul>
-              </div>
-            ))}
-          </>
+        <strong>Radar de pautas</strong>
+        <p style={{ color: "#aab2bd", fontSize: 14 }}>Busca notícias dos últimos 7 dias pelas palavras-chave de cada pilar. A busca é grátis. As pautas já vêm ordenadas pelo que você descartou antes, então vale sempre dizer o motivo.</p>
+        <form action={buscarPauta}><button style={btn}>Buscar pautas</button></form>
+        {topics.some((t) => !t.angle) && (
+          <form action={sugerirAngulos} style={{ marginTop: 8 }}>
+            <input type="hidden" name="usd" value={angleUsd.toFixed(6)} />
+            <button style={small} disabled={!hasKey}>Sugerir ângulos com o Claude (custo estimado {formatUsd(angleUsd)})</button>
+            <span style={{ color: "#aab2bd", fontSize: 13 }}> Nada é cobrado até você tocar.</span>
+          </form>
         )}
+        {topics.length === 0 && <p>Nenhuma pauta pendente. Toque em Buscar pautas.</p>}
+        {topics.map((t) => (
+          <form key={t.id} style={{ borderLeft: `4px solid ${t.pillar_color ?? "#555"}`, paddingLeft: 10, margin: "14px 0" }}>
+            <input type="hidden" name="id" value={t.id} />
+            <strong style={{ color: t.pillar_color ?? "#fff" }}>{t.pillar}</strong>
+            <input name="title" defaultValue={t.title} style={input} aria-label="Título da pauta" />
+            <div style={{ fontSize: 14 }}>{t.angle ? `Ângulo: ${t.angle}` : "Sem ângulo ainda."}</div>
+            <div style={{ fontSize: 13, color: "#aab2bd" }}>
+              Fonte: <a href={t.source_url} target="_blank" rel="noreferrer" style={{ color: "#6aa7e8" }}>{t.source_name}</a>{t.source_date ? `, ${new Date(t.source_date).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}` : ""}<br />
+              {reasonText({ keyword: t.keyword, matched: Boolean(t.keyword && t.title.toLowerCase().includes(t.keyword.toLowerCase())) }, t.pillar)}
+            </div>
+            <div style={{ marginTop: 6 }}>
+              <button formAction={aprovarPauta} style={btn}>Aprovar</button>
+              <button formAction={editarTitulo} style={small}>Salvar título</button>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 13 }}>Descartar por:{" "}
+              {(Object.keys(REASON_LABEL) as DiscardReason[]).map((r) => (
+                <button key={r} formAction={descartarPauta} name="reason" value={r} style={{ ...small, marginRight: 4 }}>{REASON_LABEL[r]}</button>
+              ))}
+            </div>
+          </form>
+        ))}
       </section>
       <form action={gerarRascunho} style={{ ...card, borderColor: "#2F6FB5" }}>
         <strong>Gerar rascunho com o Claude</strong>
@@ -69,12 +84,10 @@ export function PostsTab({ posts, slots, pillars, pauta, draftUsd, hasKey }: { p
       {posts.length === 0 && <p>Nenhum post ainda.</p>}
       {posts.map((p) => (
         <article key={p.id} style={card}>
-          <strong>{p.title || "Sem título"}</strong> · {p.status}{p.scheduled_for ? ` · ${fmt(p.scheduled_for)}` : ""}
+          <strong>{p.title || "Sem título"}</strong> · {p.status}{p.failed ? " (falhou)" : ""}{p.scheduled_for ? ` · ${fmt(p.scheduled_for)}` : ""}
           <div style={{ color: "#aab2bd", fontSize: 14 }}>{p.pillar ?? "sem pilar"} · {p.language === "pt" ? "português" : "inglês"}</div>
           <p style={{ whiteSpace: "pre-wrap" }}>{p.body}</p>
-          {(["rascunho", "agendado", "publicado"] as const).filter((s) => s !== p.status).map((s) => (
-            <form key={s} action={marcarPost} style={{ display: "inline" }}><input type="hidden" name="id" value={p.id} /><input type="hidden" name="status" value={s} /><button style={small}>Marcar como {s}</button></form>
-          ))}
+          <a href={`/posts/${p.id}`} style={{ ...small, textDecoration: "none", display: "inline-block", marginRight: 4 }}>Abrir</a>
           <form action={apagarPost} style={{ display: "inline" }}><input type="hidden" name="id" value={p.id} /><button style={small}>Apagar</button></form>
         </article>
       ))}

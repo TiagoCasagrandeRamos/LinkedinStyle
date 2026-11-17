@@ -2,15 +2,14 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireUser } from "@/lib/supabase/server";
 import { estimatePending, type Estimate } from "@/lib/pipeline/db";
-import { estimateDraft, formatUsd, usageCost } from "@/lib/llm/cost";
+import { estimateAngles, estimateDraft, formatUsd, usageCost } from "@/lib/llm/cost";
 import { composeBriefing } from "@/lib/writing/briefing";
 import { normalizeWeights } from "@/lib/writing/traits";
 import { autorizarAvaliacao, buscarVagas, descartarPendentes } from "./actions";
 import { prepararCandidatura } from "../candidaturas/actions";
 import { nextSlots } from "@/lib/schedule";
-import { ConexoesTab, PostsTab, type OutreachJob, type PautaPillar } from "./social";
+import { ConexoesTab, PostsTab, type OutreachJob, type TopicRow } from "./social";
 import { connectionsCost, estimateConnections } from "@/lib/llm/cost";
-import { fetchPillarNews } from "@/lib/news";
 import type { Pillar } from "@/lib/pillars";
 
 const btn = { padding: "10px 16px", borderRadius: 6, border: 0, background: "#2F6FB5", color: "#fff", cursor: "pointer", marginRight: 8 };
@@ -34,7 +33,7 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
   const { data: apps } = await sb.from("ls_applications").select("id, job_id, status").eq("user_id", user.id);
   const appByJob = new Map((apps ?? []).map((a) => [a.job_id, a]));
 
-  const { data: cs } = await sb.from("ls_content_settings").select("pillars, post_days, post_time, languages, writing_profile, avoid").eq("user_id", user.id).single();
+  const { data: cs } = await sb.from("ls_content_settings").select("pillars, post_days, post_time, languages, writing_profile, avoid, timezone").eq("user_id", user.id).single();
   const pillarList = ((cs?.pillars ?? []) as Pillar[]).filter((p) => p?.name);
   const pillars = pillarList.map((p) => p.name);
   let draftUsd = 0;
@@ -60,16 +59,16 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
     const { data: today } = await sb.from("ls_connections").select("kind").eq("user_id", user.id).gte("created_at", since);
     for (const t of today ?? []) usedToday[t.kind === "vaga" ? "vaga" : "rede"]++;
   }
-  let pauta: PautaPillar[] | null = null;
-  if (aba === "posts" && pautaRaw === "1") {
-    const lang = (cs?.languages ?? ["pt"])[0] === "en" ? "en" : "pt";
-    pauta = await Promise.all(pillarList.filter((p) => (p.keywords ?? []).length).map(async (p) => {
-      try { return { name: p.name, color: p.color, items: await fetchPillarNews(p.keywords, lang) }; }
-      catch (e) { return { name: p.name, color: p.color, items: [], error: (e as Error).message }; }
-    }));
+  let topics: TopicRow[] = [];
+  let angleUsd = 0;
+  if (aba === "posts") {
+    const { data: tp } = await sb.from("ls_topics").select("id, pillar, pillar_color, title, angle, source_name, source_url, source_date, keyword, rank_score").eq("user_id", user.id).eq("status", "sugerida").order("rank_score", { ascending: false }).limit(12);
+    topics = (tp ?? []) as TopicRow[];
+    const noAngle = topics.filter((t) => !t.angle).slice(0, 10);
+    angleUsd = usageCost(estimateAngles(noAngle.length, noAngle.reduce((n, t) => n + t.title.length, 0)));
   }
-  const slots = nextSlots(cs?.post_days ?? [1, 3, 5], String(cs?.post_time ?? "09:00").slice(0, 5), 3);
-  const { data: posts } = aba === "posts" ? await sb.from("ls_posts").select("id, title, body, pillar, language, status, scheduled_for").eq("user_id", user.id).order("created_at", { ascending: false }) : { data: [] };
+  const slots = nextSlots(cs?.post_days ?? [1, 3, 5], String(cs?.post_time ?? "09:00").slice(0, 5), 3, new Date(), (cs as { timezone?: string } | null)?.timezone ?? "America/Sao_Paulo");
+  const { data: posts } = aba === "posts" ? await sb.from("ls_posts").select("id, title, body, pillar, language, status, scheduled_for, failed").eq("user_id", user.id).order("created_at", { ascending: false }) : { data: [] };
   const { data: conns } = aba === "conexoes" ? await sb.from("ls_connections").select("id, name, company, role, profile_url, note, status, follow_up_at, invite_note, followup_message, reason, kind").eq("user_id", user.id).order("created_at", { ascending: false }) : { data: [] };
 
   return (
@@ -83,7 +82,7 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
           <Link key={k} href={`/painel?aba=${k}`} style={{ padding: "8px 14px", borderRadius: 6, textDecoration: "none", color: "#fff", background: aba === k ? "#2F6FB5" : "#2b3138" }}>{l}</Link>
         ))}
       </nav>
-      {aba === "posts" && <PostsTab posts={posts ?? []} slots={slots.map((d) => d.toISOString())} pillars={pillars} pauta={pauta} draftUsd={draftUsd} hasKey={Boolean(prof.llm_key_encrypted)} />}
+      {aba === "posts" && <PostsTab posts={posts ?? []} slots={slots.map((d) => d.toISOString())} pillars={pillars} topics={topics} angleUsd={angleUsd} draftUsd={draftUsd} hasKey={Boolean(prof.llm_key_encrypted)} />}
       {aba === "conexoes" && <ConexoesTab conns={(conns ?? []) as never} jobs={outreachJobs} connUsd={connUsd} hasKey={Boolean(prof.llm_key_encrypted)} minScore={minScore} usedToday={usedToday} />}
       {aba === "vagas" && <>
       <form action={buscarVagas}><button style={btn}>Buscar vagas (grátis)</button></form>
