@@ -75,3 +75,17 @@ Early. See the issues for what is being built.
 No user data lives in this repo. Each person creates an account and goes through onboarding: resumes (Portuguese and/or English, validated by the user), job preferences and salary floor, blocked companies, content pillars and posting cadence, and their own API key. When an opening comes in, the app detects whether it is in English or Portuguese and picks the matching resume; with only one language on file it uses that one and says so.
 
 The app explains the "where it stops" decision in the UI too, at `/limites`.
+
+## Deploying (Vercel)
+
+Connect the repo to a Vercel project and set these variables:
+
+| Variable | Notes |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Publishable key |
+| `TOKEN_ENCRYPTION_KEY` | `openssl rand -base64 32`. Losing it makes stored API keys unreadable |
+| `CRON_SECRET` | Long random string. Vercel sends it as a Bearer token to `/api/cron/daily` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Only the daily cron uses it. Server side only, never exposed |
+
+`vercel.json` schedules the collection once a day. On mobile, open the deployed URL and use "Add to Home Screen" to install it as a PWA.
