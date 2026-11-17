@@ -106,7 +106,7 @@ O app publica no seu perfil pela API oficial, só posts agendados que você auto
 2. Na aba Products, adicione **Sign In with LinkedIn using OpenID Connect** e **Share on LinkedIn** (os dois são liberados na hora).
 3. Na aba Auth, registre a Redirect URL: `https://SEU-DOMINIO/api/linkedin/callback`.
 4. No Vercel, crie as variáveis `LINKEDIN_CLIENT_ID` e `LINKEDIN_CLIENT_SECRET` (a segunda como sensível) e faça um novo deploy. `LINKEDIN_VERSION` é opcional (YYYYMM).
-5. No GitHub (Settings > Secrets > Actions), crie `APP_URL` (ex.: `https://linkedinstyle.vercel.app`) e `CRON_SECRET` (o mesmo valor do Vercel). O workflow `publicar.yml` chama o app a cada 10 minutos. O cron do Vercel Hobby só roda uma vez por dia, por isso o agendador fica no GitHub.
+5. O agendador roda dentro do Supabase (pg_cron + pg_net, migração `0009_publish_schedule.sql`) e chama `/api/cron/publish` a cada 5 minutos com um segredo guardado no Vault. Crie a variável `PUBLISH_SECRET` no Vercel com o mesmo valor do Vault (veja o cabeçalho da migração). O cron do Vercel Hobby só roda uma vez por dia, por isso não serve para isso.
 6. Abra `/linkedin`, conecte e ligue a publicação automática. No passo de agendamento de cada post, escolha "Publicar sozinho" e marque a autorização.
 
 Limites: o acesso do LinkedIn vale 60 dias e não renova sozinho; reconecte antes de vencer. O app não publica se o texto tiver algo da lista de evitar, se a hora passou há mais de 6 horas, ou se a conexão expirou, e marca o post como falhou com o motivo.

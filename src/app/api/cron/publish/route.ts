@@ -9,11 +9,11 @@ export const maxDuration = 60;
 
 /**
  * Publica os posts agendados que a pessoa autorizou um a um. Chamado a cada poucos minutos
- * por um agendador externo (GitHub Actions). Não usa o Claude, então não gera custo de IA.
+ * pelo pg_cron do Supabase (migração 0009). Não usa o Claude, então não gera custo de IA.
  */
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const secrets = [process.env.PUBLISH_SECRET, process.env.CRON_SECRET].filter(Boolean);
+  if (!secrets.length || !secrets.some((s) => req.headers.get("authorization") === `Bearer ${s}`)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!service) return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY ausente" }, { status: 500 });
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, service, { auth: { persistSession: false } });
