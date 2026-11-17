@@ -39,3 +39,20 @@ export function formatUsd(usd: number): string {
   if (usd > 0 && usd < 0.0001) return "menos de US$ 0,0001";
   return `US$ ${usd.toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`;
 }
+
+/** Estimativa de uma chamada de texto livre (exemplo de post, pilares, calibragem). */
+export function estimateText(inputChars: number, outputTokens: number): Usage {
+  return { input: Math.ceil(inputChars / CHARS_PER_TOKEN) + OVERHEAD_TOKENS, output: outputTokens };
+}
+
+export const MAX_RESUME_FOR_CONTENT = 12000;
+export const OUT_PILLARS = 700;
+export const OUT_PREVIEW = 260;
+export const OUT_LEARN = 120;
+export const MAX_SAMPLE_CHARS = 6000;
+
+export const estimatePillars = (resumeChars: number, extraChars: number): Usage =>
+  estimateText(Math.min(resumeChars, MAX_RESUME_FOR_CONTENT) + extraChars, OUT_PILLARS);
+export const estimatePreview = (resumeChars: number, briefingChars: number): Usage =>
+  estimateText(Math.min(resumeChars, MAX_RESUME_FOR_CONTENT) + briefingChars, OUT_PREVIEW);
+export const estimateLearn = (sampleChars: number): Usage => estimateText(Math.min(sampleChars, MAX_SAMPLE_CHARS) + 600, OUT_LEARN);

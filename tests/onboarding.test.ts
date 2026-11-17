@@ -16,7 +16,9 @@ describe("onboarding", () => {
     expect(parsePillars("IA | #2F6FB5\nCarreira")).toEqual([{ name: "IA", color: "#2F6FB5" }, { name: "Carreira", color: "#6B7280" }]);
   });
   it("valida conteúdo", () => {
-    expect(contentSchema.safeParse({ pillars: "IA", postsPerWeek: 3, postDays: ["1", "3"], postTime: "09:00", timezone: "America/Sao_Paulo", languages: ["pt"], avoid: "" }).success).toBe(true);
+    expect(contentSchema.safeParse({ pillars: JSON.stringify([{ name: "IA", color: "#6AA7E8" }]), postsPerWeek: 3, postDays: ["1", "3"], postTime: "09:00", timezone: "America/Sao_Paulo", languages: ["pt"] }).success).toBe(true);
+    expect(contentSchema.safeParse({ pillars: "[]", postsPerWeek: 3, postDays: [], postTime: "09:00", timezone: "x", languages: ["pt"] }).success).toBe(true);
+    expect(contentSchema.safeParse({ pillars: "{ruim", postsPerWeek: 3, postDays: [], postTime: "09:00", timezone: "x", languages: ["pt"] }).success).toBe(false);
   });
   it("criptografa e descriptografa", () => {
     process.env.TOKEN_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");

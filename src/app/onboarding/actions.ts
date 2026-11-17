@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/supabase/server";
 import { detectLanguage } from "@/lib/language";
 import { extractResumeText, kindFromName, MAX_RESUME_BYTES } from "@/lib/resume/extract";
-import { contentSchema, jobPrefsSchema } from "@/lib/onboarding-schemas";
+import { contentSchema, jobPrefsSchema, writingSchema } from "@/lib/onboarding-schemas";
 import { encryptSecret } from "@/lib/crypto";
 
 const back = (step: number, msg: string): never => redirect(`/onboarding?etapa=${step}&erro=${encodeURIComponent(msg)}`);
@@ -98,33 +98,42 @@ export async function salvarVagas(formData: FormData) {
   redirect("/onboarding?etapa=3");
 }
 
-export async function salvarConteudo(formData: FormData) {
-  const { sb, user } = await ctx();
-  const p = contentSchema.safeParse({
-    pillars: String(formData.get("pillars") ?? ""), postsPerWeek: String(formData.get("postsPerWeek") ?? "0"),
-    postDays: formData.getAll("postDays"), postTime: String(formData.get("postTime") ?? "09:00"),
-    timezone: String(formData.get("timezone") ?? "America/Sao_Paulo"), languages: formData.getAll("languages"),
-    tone: String(formData.get("tone") ?? ""), avoid: String(formData.get("avoid") ?? ""),
-  });
-  if (!p.success) back(3, p.error.issues[0].message);
-  const d = p.data!;
-  const { error } = await sb.from("ls_content_settings").upsert({
-    user_id: user.id, pillars: d.pillars, posts_per_week: d.postsPerWeek, post_days: d.postDays,
-    post_time: d.postTime, timezone: d.timezone, languages: d.languages, tone: d.tone ?? null, avoid: d.avoid,
-  });
-  if (error) back(3, error.message);
-  await setStep(sb, user.id, 4);
-  redirect("/onboarding?etapa=4");
-}
-
-export async function concluir(formData: FormData) {
+export async function salvarChave(formData: FormData) {
   const { sb, user } = await ctx();
   const key = String(formData.get("llmKey") ?? "").trim();
   if (key) {
     let enc: string;
-    try { enc = encryptSecret(key); } catch { return back(4, "Servidor sem TOKEN_ENCRYPTION_KEY configurada. Veja o README."); }
+    try { enc = encryptSecret(key); } catch { return back(3, "Servidor sem TOKEN_ENCRYPTION_KEY configurada. Veja o README."); }
     await sb.from("ls_profiles").update({ llm_key_encrypted: enc }).eq("user_id", user.id);
   }
-  await sb.from("ls_profiles").update({ onboarding_step: 5, onboarding_completed_at: new Date().toISOString() }).eq("user_id", user.id);
+  await setStep(sb, user.id, 4);
+  redirect("/onboarding?etapa=4");
+}
+
+export async function salvarConteudo(formData: FormData) {
+  const { sb, user } = await ctx();
+  const p = contentSchema.safeParse({
+    pillars: String(formData.get("pillars") ?? "[]"), postsPerWeek: String(formData.get("postsPerWeek") ?? "0"),
+    postDays: formData.getAll("postDays"), postTime: String(formData.get("postTime") ?? "09:00"),
+    timezone: String(formData.get("timezone") ?? "America/Sao_Paulo"), languages: formData.getAll("languages"),
+  });
+  if (!p.success) back(4, p.error.issues[0].message);
+  const d = p.data!;
+  const { error } = await sb.from("ls_content_settings").upsert({
+    user_id: user.id, pillars: d.pillars, posts_per_week: d.postsPerWeek, post_days: d.postDays,
+    post_time: d.postTime, timezone: d.timezone, languages: d.languages,
+  });
+  if (error) back(4, error.message);
+  await setStep(sb, user.id, 5);
+  redirect("/onboarding?etapa=5");
+}
+
+export async function concluir(formData: FormData) {
+  const { sb, user } = await ctx();
+  const p = writingSchema.safeParse({ weights: String(formData.get("weights") ?? "{}"), avoid: String(formData.get("avoid") ?? "") });
+  if (!p.success) back(5, "Perfil de escrita inválido");
+  const { error } = await sb.from("ls_content_settings").update({ writing_profile: { weights: p.data!.weights }, avoid: p.data!.avoid }).eq("user_id", user.id);
+  if (error) back(5, error.message);
+  await sb.from("ls_profiles").update({ onboarding_step: 6, onboarding_completed_at: new Date().toISOString() }).eq("user_id", user.id);
   redirect("/painel");
 }

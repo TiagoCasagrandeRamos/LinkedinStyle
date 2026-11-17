@@ -1,7 +1,12 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/supabase/server";
 import { detectLanguage } from "@/lib/language";
-import { avancarDeCurriculos, concluir, confirmarCurriculo, enviarCurriculos, removerCurriculo, salvarConteudo, salvarVagas } from "./actions";
+import { avancarDeCurriculos, concluir, confirmarCurriculo, enviarCurriculos, removerCurriculo, salvarChave, salvarConteudo, salvarVagas } from "./actions";
+import PillarsEditor from "./pillars-editor";
+import WritingEditor from "./writing-editor";
+import { estimatePillars, usageCost } from "@/lib/llm/cost";
+import { normalizeWeights } from "@/lib/writing/traits";
+import type { Pillar } from "@/lib/pillars";
 
 const S = {
   input: { display: "block", width: "100%", padding: 10, margin: "6px 0 14px", borderRadius: 6, border: "1px solid #444", background: "#2b3138", color: "#fff", boxSizing: "border-box" as const },
@@ -10,7 +15,7 @@ const S = {
   card: { border: "1px solid #3a4048", borderRadius: 8, padding: 14, margin: "12px 0" },
   hint: { color: "#aab2bd", fontSize: 14, marginTop: -8 },
 };
-const STEPS = ["Currículos", "Vagas e financeiro", "Conteúdo", "Conexões e chave"];
+const STEPS = ["Currículos", "Vagas e financeiro", "Chave e conexões", "Pilares e cadência", "Perfil de escrita"];
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 export default async function Onboarding({ searchParams }: { searchParams: Promise<{ etapa?: string; erro?: string }> }) {
@@ -20,17 +25,18 @@ export default async function Onboarding({ searchParams }: { searchParams: Promi
   await sb.from("ls_profiles").upsert({ user_id: user.id, email: user.email }, { onConflict: "user_id", ignoreDuplicates: true });
   const { data: prof } = await sb.from("ls_profiles").select("onboarding_step, onboarding_completed_at").eq("user_id", user.id).single();
   if (prof?.onboarding_completed_at && !etapa) redirect("/painel");
-  const maxStep = Math.min(prof?.onboarding_step ?? 1, 4);
+  const maxStep = Math.min(prof?.onboarding_step ?? 1, 5);
   const step = Math.min(Math.max(Number(etapa) || maxStep, 1), maxStep);
 
   return (
     <>
-      <p style={{ color: "#aab2bd" }}>Etapa {step} de 4: {STEPS[step - 1]}</p>
+      <p style={{ color: "#aab2bd" }}>Etapa {step} de 5: {STEPS[step - 1]}</p>
       {erro && <p style={{ color: "#ff8a80" }}>{erro}</p>}
       {step === 1 && <Curriculos sb={sb} uid={user.id} />}
       {step === 2 && <Vagas />}
-      {step === 3 && <Conteudo />}
-      {step === 4 && <Conexoes />}
+      {step === 3 && <Chave />}
+      {step === 4 && <Conteudo sb={sb} uid={user.id} />}
+      {step === 5 && <Escrita sb={sb} uid={user.id} />}
     </>
   );
 }
@@ -112,43 +118,75 @@ function Vagas() {
   );
 }
 
-function Conteudo() {
+type SB = Awaited<ReturnType<typeof requireUser>>["sb"];
+
+async function firstResume(sb: SB, uid: string): Promise<string> {
+  const { data } = await sb.from("ls_resumes").select("text_content").eq("user_id", uid).not("confirmed_at", "is", null).order("language", { ascending: false }).limit(1);
+  return (data?.[0]?.text_content as string | undefined) ?? "";
+}
+
+async function Conteudo({ sb, uid }: { sb: SB; uid: string }) {
+  const [{ data: cs }, { data: prof }, { data: prefs }, resume] = await Promise.all([
+    sb.from("ls_content_settings").select("pillars, posts_per_week, post_days, post_time, timezone, languages").eq("user_id", uid).maybeSingle(),
+    sb.from("ls_profiles").select("llm_key_encrypted").eq("user_id", uid).single(),
+    sb.from("ls_job_preferences").select("titles, preferred_sectors").eq("user_id", uid).maybeSingle(),
+    firstResume(sb, uid),
+  ]);
+  const extra = ((prefs?.titles ?? []) as string[]).join().length + ((prefs?.preferred_sectors ?? []) as string[]).join().length;
+  const estimate = usageCost(estimatePillars(resume.length, extra));
+  const saved = ((cs?.pillars ?? []) as Pillar[]).filter((p) => p && typeof p === "object" && "keywords" in p);
+  const days: number[] = cs?.post_days ?? [1, 3, 5];
   return (
     <>
-      <h1>Conteúdo no LinkedIn</h1>
+      <h1>Pilares e cadência</h1>
       <form action={salvarConteudo}>
-        <label>Pilares de post, um por linha: Nome | #cor<textarea style={{ ...S.input, minHeight: 120 }} name="pillars" placeholder={"Gestão de projetos | #2F6FB5\nCarreira | #7C3AED"} required /></label>
-        <label>Posts por semana<input style={S.input} name="postsPerWeek" type="number" min={0} max={14} defaultValue={3} /></label>
+        <PillarsEditor initial={saved} estimateUsd={estimate} hasKey={Boolean(prof?.llm_key_encrypted)} />
+        <label>Posts por semana<input style={S.input} name="postsPerWeek" type="number" min={0} max={14} defaultValue={cs?.posts_per_week ?? 3} /></label>
         <fieldset style={S.card}><legend>Dias de publicação</legend>
-          {DIAS.map((d, i) => <label key={d} style={{ marginRight: 10 }}><input type="checkbox" name="postDays" value={i} defaultChecked={[1, 3, 5].includes(i)} /> {d}</label>)}
+          {DIAS.map((d, i) => <label key={d} style={{ marginRight: 10 }}><input type="checkbox" name="postDays" value={i} defaultChecked={days.includes(i)} /> {d}</label>)}
         </fieldset>
-        <label>Horário<input style={S.input} name="postTime" type="time" defaultValue="09:00" /></label>
-        <label>Fuso horário<input style={S.input} name="timezone" defaultValue="America/Sao_Paulo" /></label>
+        <label>Horário<input style={S.input} name="postTime" type="time" defaultValue={String(cs?.post_time ?? "09:00").slice(0, 5)} /></label>
+        <label>Fuso horário<input style={S.input} name="timezone" defaultValue={cs?.timezone ?? "America/Sao_Paulo"} /></label>
         <fieldset style={S.card}><legend>Idiomas dos posts</legend>
-          <label><input type="checkbox" name="languages" value="pt" defaultChecked /> Português</label>{" "}
-          <label><input type="checkbox" name="languages" value="en" /> Inglês</label>
+          <label><input type="checkbox" name="languages" value="pt" defaultChecked={(cs?.languages ?? ["pt"]).includes("pt")} /> Português</label>{" "}
+          <label><input type="checkbox" name="languages" value="en" defaultChecked={(cs?.languages ?? []).includes("en")} /> Inglês</label>
         </fieldset>
-        <label>Tom de voz<textarea style={S.input} name="tone" placeholder="Direto, pessoal, frases curtas" /></label>
-        <label>O que evitar (um por linha)<textarea style={S.input} name="avoid" placeholder={"clichês de LinkedIn\nemojis"} /></label>
         <button style={S.btn}>Continuar</button>
       </form>
     </>
   );
 }
 
-function Conexoes() {
+async function Escrita({ sb, uid }: { sb: SB; uid: string }) {
+  const [{ data: cs }, { data: prof }, resume] = await Promise.all([
+    sb.from("ls_content_settings").select("writing_profile, avoid").eq("user_id", uid).maybeSingle(),
+    sb.from("ls_profiles").select("llm_key_encrypted").eq("user_id", uid).single(),
+    firstResume(sb, uid),
+  ]);
   return (
     <>
-      <h1>Conexões e chave</h1>
+      <h1>Perfil de escrita</h1>
       <form action={concluir}>
-        <label>Chave da API da Anthropic (usada para pontuar vagas e ler formulários)
+        <WritingEditor initial={normalizeWeights((cs?.writing_profile as { weights?: unknown } | null)?.weights)} initialAvoid={(cs?.avoid ?? []) as string[]} resumeChars={resume.length} hasKey={Boolean(prof?.llm_key_encrypted)} />
+        <button style={S.btn}>Concluir</button>
+      </form>
+    </>
+  );
+}
+
+function Chave() {
+  return (
+    <>
+      <h1>Chave e conexões</h1>
+      <form action={salvarChave}>
+        <label>Chave da API da Anthropic (usada para pontuar vagas, sugerir pilares e gerar exemplos de escrita)
           <input style={S.input} name="llmKey" type="password" autoComplete="off" placeholder="sk-ant-..." />
         </label>
-        <p style={S.hint}>Fica criptografada no banco, só você usa. Pode deixar em branco agora, mas a nota de requisitos só funciona com ela. Antes de cada avaliação o app mostra o custo estimado e só executa depois que você autorizar.</p>
+        <p style={S.hint}>Fica criptografada no banco, só você usa. Antes de cada uso pago o app mostra o custo estimado e só executa depois que você autorizar. Sem a chave você segue, mas as sugestões automáticas ficam desligadas.</p>
         <fieldset style={S.card}><legend>LinkedIn (opcional)</legend>
           <p>A conexão por OAuth entra na próxima versão. Por enquanto você pode colar links de vagas do LinkedIn para o app listar e pontuar.</p>
         </fieldset>
-        <button style={S.btn}>Concluir</button>
+        <button style={S.btn}>Continuar</button>
       </form>
     </>
   );

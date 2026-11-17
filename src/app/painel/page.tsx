@@ -6,13 +6,15 @@ import { formatUsd } from "@/lib/llm/cost";
 import { autorizarAvaliacao, buscarVagas, descartarPendentes } from "./actions";
 import { prepararCandidatura } from "../candidaturas/actions";
 import { nextSlots } from "@/lib/schedule";
-import { ConexoesTab, PostsTab } from "./social";
+import { ConexoesTab, PostsTab, type PautaPillar } from "./social";
+import { fetchPillarNews } from "@/lib/news";
+import type { Pillar } from "@/lib/pillars";
 
 const btn = { padding: "10px 16px", borderRadius: 6, border: 0, background: "#2F6FB5", color: "#fff", cursor: "pointer", marginRight: 8 };
 const ghost = { ...btn, background: "#444" };
 
-export default async function Painel({ searchParams }: { searchParams: Promise<{ msg?: string; erro?: string; aba?: string }> }) {
-  const { msg, erro, aba: abaRaw } = await searchParams;
+export default async function Painel({ searchParams }: { searchParams: Promise<{ msg?: string; erro?: string; aba?: string; pauta?: string }> }) {
+  const { msg, erro, aba: abaRaw, pauta: pautaRaw } = await searchParams;
   const aba = abaRaw === "posts" || abaRaw === "conexoes" ? abaRaw : "vagas";
   const { sb, user } = await requireUser();
   if (!user) redirect("/login");
@@ -29,8 +31,17 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
   const { data: apps } = await sb.from("ls_applications").select("id, job_id, status").eq("user_id", user.id);
   const appByJob = new Map((apps ?? []).map((a) => [a.job_id, a]));
 
-  const { data: cs } = await sb.from("ls_content_settings").select("pillars, post_days, post_time").eq("user_id", user.id).single();
-  const pillars = ((cs?.pillars ?? []) as { name?: string }[]).map((p) => p.name ?? "").filter(Boolean);
+  const { data: cs } = await sb.from("ls_content_settings").select("pillars, post_days, post_time, languages").eq("user_id", user.id).single();
+  const pillarList = ((cs?.pillars ?? []) as Pillar[]).filter((p) => p?.name);
+  const pillars = pillarList.map((p) => p.name);
+  let pauta: PautaPillar[] | null = null;
+  if (aba === "posts" && pautaRaw === "1") {
+    const lang = (cs?.languages ?? ["pt"])[0] === "en" ? "en" : "pt";
+    pauta = await Promise.all(pillarList.filter((p) => (p.keywords ?? []).length).map(async (p) => {
+      try { return { name: p.name, color: p.color, items: await fetchPillarNews(p.keywords, lang) }; }
+      catch (e) { return { name: p.name, color: p.color, items: [], error: (e as Error).message }; }
+    }));
+  }
   const slots = nextSlots(cs?.post_days ?? [1, 3, 5], String(cs?.post_time ?? "09:00").slice(0, 5), 3);
   const { data: posts } = aba === "posts" ? await sb.from("ls_posts").select("id, title, body, pillar, language, status, scheduled_for").eq("user_id", user.id).order("created_at", { ascending: false }) : { data: [] };
   const { data: conns } = aba === "conexoes" ? await sb.from("ls_connections").select("id, name, company, role, profile_url, note, status, follow_up_at").eq("user_id", user.id).order("created_at", { ascending: false }) : { data: [] };
@@ -46,7 +57,7 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
           <Link key={k} href={`/painel?aba=${k}`} style={{ padding: "8px 14px", borderRadius: 6, textDecoration: "none", color: "#fff", background: aba === k ? "#2F6FB5" : "#2b3138" }}>{l}</Link>
         ))}
       </nav>
-      {aba === "posts" && <PostsTab posts={posts ?? []} slots={slots.map((d) => d.toISOString())} pillars={pillars} />}
+      {aba === "posts" && <PostsTab posts={posts ?? []} slots={slots.map((d) => d.toISOString())} pillars={pillars} pauta={pauta} />}
       {aba === "conexoes" && <ConexoesTab conns={conns ?? []} />}
       {aba === "vagas" && <>
       <form action={buscarVagas}><button style={btn}>Buscar vagas (grátis)</button></form>
@@ -60,7 +71,7 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
             custo estimado <strong>{formatUsd(est.usd)}</strong> com o modelo {est.model}, cerca de {est.usage.input.toLocaleString("pt-BR")} tokens de entrada e {est.usage.output.toLocaleString("pt-BR")} de saída.
           </p>
           <p style={{ color: "#aab2bd", fontSize: 14 }}>Nada é cobrado até você tocar em autorizar. É estimativa: o custo real aparece depois da avaliação.</p>
-          {!prof.llm_key_encrypted && <p style={{ color: "#ffd180" }}>Cadastre a sua chave da API na etapa 4 do <Link href="/onboarding?etapa=4" style={{ color: "#6aa7e8" }}>onboarding</Link> antes de autorizar.</p>}
+          {!prof.llm_key_encrypted && <p style={{ color: "#ffd180" }}>Cadastre a sua chave da API na etapa 4 do <Link href="/onboarding?etapa=3" style={{ color: "#6aa7e8" }}>onboarding</Link> antes de autorizar.</p>}
           <form action={autorizarAvaliacao} style={{ display: "inline" }}>
             <input type="hidden" name="calls" value={est.willScore} />
             <input type="hidden" name="usd" value={est.usd.toFixed(6)} />

@@ -69,6 +69,10 @@ Early. See the issues for what is being built.
 
 Searching and filtering openings is free. Scoring with Claude is paid, so the app splits the two: it shows an estimated cost (tokens and USD, from the model's published price) and runs only after the user authorizes that amount. If the estimate changes before the run, it cancels and asks again. The daily cron only collects, it never calls the model. After each run the app shows the real cost reported by the API.
 
+## Writing profile and pillars
+
+Onboarding suggests instead of asking for free text. Writing traits (direct, friendly, outgoing, sarcastic, analytical, provocative, didactic, vulnerable) get a weight from 0 to 5, and each weighted trait is turned into concrete writing rules (not adjectives) in a tone briefing, ordered by weight. Conflicting high traits show a warning, never a block. Content pillars are proposed from the resume, target roles and sectors, each with keywords, an accessible color and the origin of the suggestion. The daily news radar searches each pillar's keywords. Every paid suggestion shows its estimated cost and runs only after the user clicks.
+
 ## Running your own copy
 
 1. Create a Supabase project and run the files in `supabase/migrations` in order (`0001`, `0002`). They create the `ls_*` tables with row level security and a private `resumes` bucket.

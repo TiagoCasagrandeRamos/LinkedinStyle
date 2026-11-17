@@ -10,12 +10,35 @@ const card = { border: "1px solid #3a4048", borderRadius: 8, padding: 14, margin
 const fmt = (iso: string) => new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
 const STATUS_CONN: Record<string, string> = { para_abordar: "Para abordar", abordado: "Abordado", respondeu: "Respondeu", conectado: "Conectado" };
 
-export function PostsTab({ posts, slots, pillars }: { posts: Post[]; slots: string[]; pillars: string[] }) {
+export type PautaPillar = { name: string; color: string; items: { title: string; link: string; source: string; date: string }[]; error?: string };
+
+export function PostsTab({ posts, slots, pillars, pauta }: { posts: Post[]; slots: string[]; pillars: string[]; pauta: PautaPillar[] | null }) {
   return (
     <>
       <section style={card}>
         <strong>Próximos horários pela sua cadência</strong>
         <p style={{ color: "#aab2bd", fontSize: 14 }}>{slots.length ? slots.map(fmt).join(" · ") : "Defina dias e horário no onboarding (etapa 3)."}</p>
+      </section>
+      <section style={card}>
+        <strong>Radar de notícias</strong>
+        <p style={{ color: "#aab2bd", fontSize: 14 }}>Busca notícias dos últimos 7 dias pelas palavras-chave de cada pilar. É grátis, não usa o Claude.</p>
+        <a href="/painel?aba=posts&pauta=1" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>Buscar pauta do dia</a>
+        {pauta && (
+          <>
+            <h3>Pauta de {new Date().toLocaleDateString("pt-BR", { dateStyle: "full", timeZone: "America/Sao_Paulo" })}</h3>
+            {pauta.length === 0 && <p>Nenhum pilar com palavras-chave. Edite os pilares no onboarding (etapa 4).</p>}
+            {pauta.map((p) => (
+              <div key={p.name} style={{ borderLeft: `4px solid ${p.color}`, paddingLeft: 10, margin: "10px 0" }}>
+                <strong style={{ color: p.color }}>{p.name}</strong>
+                {p.error && <p style={{ color: "#ffd180" }}>Não consegui buscar: {p.error}</p>}
+                {!p.error && p.items.length === 0 && <p style={{ color: "#aab2bd" }}>Nada novo nesta semana.</p>}
+                <ul style={{ margin: "6px 0", paddingLeft: 18 }}>
+                  {p.items.map((n) => <li key={n.link}><a href={n.link} style={{ color: "#6aa7e8" }}>{n.title}</a> <span style={{ color: "#aab2bd", fontSize: 13 }}>({n.source}, {new Date(n.date).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })})</span></li>)}
+                </ul>
+              </div>
+            ))}
+          </>
+        )}
       </section>
       <form action={criarPost} style={card}>
         <strong>Novo post</strong>

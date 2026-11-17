@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { pillarSchema } from "./pillars";
+import { normalizeWeights } from "./writing/traits";
 
 const list = (s: string) => s.split(/[\n,;]/).map((x) => x.trim()).filter(Boolean);
 
@@ -31,12 +33,18 @@ export function parsePillars(text: string): { name: string; color: string }[] {
 }
 
 export const contentSchema = z.object({
-  pillars: z.string().transform(parsePillars).pipe(z.array(z.object({ name: z.string().min(1), color: z.string() })).min(1, "Defina ao menos um pilar")),
+  /** JSON da lista de pilares montada na tela. Nenhum pilar é obrigatório. */
+  pillars: z.string().transform((s, ctx) => {
+    try { return JSON.parse(s || "[]"); } catch { ctx.addIssue({ code: "custom", message: "Pilares inválidos" }); return z.NEVER; }
+  }).pipe(z.array(pillarSchema).max(8)),
   postsPerWeek: z.coerce.number().int().min(0).max(14),
   postDays: z.array(z.coerce.number().int().min(0).max(6)).default([]),
   postTime: z.string().regex(/^\d{2}:\d{2}$/),
   timezone: z.string().min(1),
   languages: z.array(z.enum(["pt", "en"])).min(1, "Escolha ao menos um idioma"),
-  tone: z.string().max(500).optional(),
+});
+
+export const writingSchema = z.object({
+  weights: z.string().transform((s) => { try { return normalizeWeights(JSON.parse(s)); } catch { return normalizeWeights({}); } }),
   avoid: z.string().transform(list),
 });
