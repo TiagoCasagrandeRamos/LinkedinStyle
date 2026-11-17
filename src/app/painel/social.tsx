@@ -1,9 +1,12 @@
 import { gerarRascunho } from "./draft-actions";
+import { sugerirConexoes } from "./network-actions";
+import CopyButton from "./copy-button";
+import { linkedinPeopleSearch } from "@/lib/network";
 import { formatUsd } from "@/lib/llm/cost";
 import { criarConexao, apagarConexao, apagarPost, criarPost, marcarPost, mudarConexao } from "./social-actions";
 
 type Post = { id: string; title: string | null; body: string; pillar: string | null; language: string; status: string; scheduled_for: string | null };
-type Conn = { id: string; name: string; company: string | null; role: string | null; profile_url: string | null; note: string | null; status: string; follow_up_at: string | null };
+type Conn = { invite_note: string | null; followup_message: string | null; reason: string | null; kind: string; id: string; name: string; company: string | null; role: string | null; profile_url: string | null; note: string | null; status: string; follow_up_at: string | null };
 
 const btn = { padding: "8px 14px", borderRadius: 6, border: 0, background: "#2F6FB5", color: "#fff", cursor: "pointer", marginRight: 8 } as const;
 const small = { ...btn, background: "#444", padding: "4px 10px", fontSize: 13 } as const;
@@ -79,9 +82,28 @@ export function PostsTab({ posts, slots, pillars, pauta, draftUsd, hasKey }: { p
   );
 }
 
-export function ConexoesTab({ conns }: { conns: Conn[] }) {
+export type OutreachJob = { id: string; title: string; company: string; score: number };
+
+export function ConexoesTab({ conns, jobs, connUsd, hasKey, minScore, usedToday }: { conns: Conn[]; jobs: OutreachJob[]; connUsd: number; hasKey: boolean; minScore: number; usedToday: { vaga: number; rede: number } }) {
   return (
     <>
+      <form action={sugerirConexoes} style={{ ...card, borderColor: "#2F6FB5" }}>
+        <strong>Sugerir conexões</strong>
+        <p style={{ color: "#aab2bd", fontSize: 14 }}>O Claude procura na web pública pessoas que contratam ou atuam na área, traz o link do perfil e escreve a nota do convite e a mensagem para depois do aceite. Só entra quem tem link de perfil que apareceu na busca. Você confere, copia e envia no LinkedIn. O app não envia nada.</p>
+        <p style={{ fontSize: 14 }}>Hoje: {usedToday.vaga} de 2 abordagens ligadas a vaga, {usedToday.rede} de 5 de construção de rede.</p>
+        <label style={{ fontSize: 14 }}>Tipo</label>
+        <select name="kind" style={input} defaultValue="vaga"><option value="vaga">Ligada a uma vaga (recrutador ou gestor)</option><option value="rede">Construção de rede (empresa-alvo)</option></select>
+        <label style={{ fontSize: 14 }}>Vaga (só vagas com nota {minScore} ou mais)</label>
+        <select name="jobId" style={input} defaultValue="">{jobs.length === 0 && <option value="">Nenhuma vaga elegível ainda</option>}{jobs.map((j) => <option key={j.id} value={j.id}>{j.score} · {j.title} · {j.company}</option>)}</select>
+        <label style={{ fontSize: 14 }}>Empresa (para construção de rede)</label>
+        <input name="company" placeholder="Nome da empresa" style={input} />
+        <label style={{ fontSize: 14 }}>Área ou papel que procura</label>
+        <input name="area" placeholder="ex.: gestor de projetos, recrutador de tecnologia" style={input} />
+        <input type="hidden" name="usd" value={connUsd.toFixed(6)} />
+        <button style={btn} disabled={!hasKey}>Autorizar e buscar (até {formatUsd(connUsd)})</button>
+        <p style={{ color: "#aab2bd", fontSize: 14 }}>O valor inclui até 3 buscas na web (US$ 0,01 cada) e o texto gerado. Nada é cobrado até você tocar no botão. O custo real aparece depois.</p>
+        {!hasKey && <p style={{ color: "#ffd180" }}>Cadastre a chave da API na etapa 3 do onboarding.</p>}
+      </form>
       <form action={criarConexao} style={card}>
         <strong>Nova conexão</strong>
         <input name="name" placeholder="Nome" required style={input} />
@@ -99,6 +121,17 @@ export function ConexoesTab({ conns }: { conns: Conn[] }) {
         <article key={c.id} style={card}>
           <strong>{c.profile_url ? <a href={c.profile_url} style={{ color: "#6aa7e8" }}>{c.name}</a> : c.name}</strong> · {STATUS_CONN[c.status]}
           <div style={{ color: "#aab2bd", fontSize: 14 }}>{[c.role, c.company].filter(Boolean).join(" · ")}{c.follow_up_at ? ` · retomar em ${new Date(c.follow_up_at + "T12:00:00").toLocaleDateString("pt-BR")}` : ""}</div>
+          {c.reason && <p style={{ fontSize: 14, color: "#cfd6df" }}>Por que: {c.reason}</p>}
+          {c.profile_url && <p><a href={c.profile_url} target="_blank" rel="noreferrer" style={{ color: "#6aa7e8" }}>Abrir perfil no LinkedIn</a> <span style={{ color: "#aab2bd", fontSize: 13 }}>(confira que é a pessoa certa antes de enviar)</span></p>}
+          {c.invite_note && (<div style={{ background: "#2b3138", padding: 10, borderRadius: 6, margin: "8px 0" }}>
+            <div style={{ fontSize: 13, color: "#aab2bd" }}>Nota do convite ({c.invite_note.length} de 200 caracteres)</div>
+            <p style={{ whiteSpace: "pre-wrap", margin: "6px 0" }}>{c.invite_note}</p><CopyButton text={c.invite_note} label="Copiar nota" />
+          </div>)}
+          {c.followup_message && (<div style={{ background: "#2b3138", padding: 10, borderRadius: 6, margin: "8px 0" }}>
+            <div style={{ fontSize: 13, color: "#aab2bd" }}>Mensagem para o dia seguinte ao aceite</div>
+            <p style={{ whiteSpace: "pre-wrap", margin: "6px 0" }}>{c.followup_message}</p><CopyButton text={c.followup_message} label="Copiar mensagem" />
+          </div>)}
+          {c.company && <p style={{ fontSize: 13 }}><a href={linkedinPeopleSearch(c.company, c.role ?? "")} target="_blank" rel="noreferrer" style={{ color: "#6aa7e8" }}>Buscar mais pessoas de {c.company} no LinkedIn</a></p>}
           {c.note && <p>{c.note}</p>}
           {Object.keys(STATUS_CONN).filter((s) => s !== c.status).map((s) => (
             <form key={s} action={mudarConexao} style={{ display: "inline" }}><input type="hidden" name="id" value={c.id} /><input type="hidden" name="status" value={s} /><button style={small}>{STATUS_CONN[s]}</button></form>

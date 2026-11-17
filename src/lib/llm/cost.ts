@@ -60,3 +60,16 @@ export const estimateLearn = (sampleChars: number): Usage => estimateText(Math.m
 export const OUT_DRAFT = 450;
 export const estimateDraft = (resumeChars: number, briefingChars: number, topicChars: number): Usage =>
   estimateText(Math.min(resumeChars, MAX_RESUME_FOR_CONTENT) + briefingChars + Math.min(topicChars, 1000) + 400, OUT_DRAFT);
+
+export const WEB_SEARCH_USD = 0.01;
+export const MAX_SEARCHES = 3;
+/** Resultado de busca entra como token de entrada: reserva um bloco generoso por busca. */
+const TOKENS_PER_SEARCH = 12000;
+export const OUT_CONNECTIONS = 1400;
+
+export interface ConnUsage extends Usage { searches: number }
+export const connectionsCost = (u: ConnUsage, model = DEFAULT_MODEL) => usageCost(u, model) + u.searches * WEB_SEARCH_USD;
+export function estimateConnections(resumeChars: number, briefingChars: number, jobChars: number): ConnUsage {
+  const base = estimateText(Math.min(resumeChars, MAX_RESUME_FOR_CONTENT) + briefingChars + Math.min(jobChars, 3000) + 1800, OUT_CONNECTIONS);
+  return { input: base.input + MAX_SEARCHES * TOKENS_PER_SEARCH, output: base.output, searches: MAX_SEARCHES };
+}

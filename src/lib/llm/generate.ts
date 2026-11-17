@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { DEFAULT_MODEL, MAX_RESUME_FOR_CONTENT, MAX_SAMPLE_CHARS, OUT_LEARN, OUT_PILLARS, OUT_PREVIEW, type Usage } from "./cost";
+import { DEFAULT_MODEL, MAX_RESUME_FOR_CONTENT, MAX_SAMPLE_CHARS, MAX_SEARCHES, OUT_CONNECTIONS, OUT_LEARN, OUT_PILLARS, OUT_PREVIEW, type ConnUsage, type Usage } from "./cost";
+import { parsePeople, verifyPeople } from "../network";
 import { parseSuggestions } from "../pillars";
 import { TRAIT_KEYS, normalizeWeights, type TraitWeights } from "../writing/traits";
 
@@ -52,4 +53,49 @@ Siga o briefing de tom à risca. Use só fatos do currículo e do tema informado
   const user = `<briefing_de_tom>\n${d.briefing}\n</briefing_de_tom>\n<pilar>${d.pillar}: ${d.pillarDescription}</pilar>\n<tema>\n${d.topic.slice(0, 1000)}\n</tema>\n<curriculo>\n${d.resume.slice(0, MAX_RESUME_FOR_CONTENT)}\n</curriculo>`;
   const r = await ask(apiKey, system, user, 450);
   return { text: r.text.trim(), usage: r.usage };
+}
+
+
+export interface ConnectionsInput {
+  resume: string; briefing: string; company: string; area: string; jobTitle?: string; jobDescription?: string; kind: "vaga" | "rede"; language: "pt" | "en";
+}
+
+/**
+ * Procura pessoas na web pública (recrutador, gestor ou par da área) e escreve a nota de
+ * convite e a mensagem pós-aceite. Só entra quem tem link de perfil que apareceu nos resultados.
+ */
+export async function findConnections(apiKey: string, c: ConnectionsInput) {
+  const system = `Você ajuda uma pessoa a se conectar no LinkedIn com quem contrata ou trabalha na área, de forma profissional.
+Use a busca na web para achar até 3 pessoas reais que tenham este papel na empresa informada. Regras:
+- Só use nome, cargo, empresa e link de perfil (linkedin.com/in/...) que apareçam nos resultados da busca. Nunca invente nome ou link. Se não achar ninguém, responda [].
+- Use apenas informação profissional (cargo e empresa). Nada de vida pessoal.
+- Para cada pessoa, escreva em ${c.language === "pt" ? "português do Brasil" : "inglês"}: "invite_note" com no máximo 200 caracteres (de onde a pessoa vem, por que esta pessoa, um pedido leve; sem elogio genérico, sem pedir emprego, sem "expandir minha rede") e "followup_message" de 3 a 5 linhas para enviar um dia depois do aceite (apresentação em uma linha, motivo específico, um único pedido fácil de responder, sem colar currículo).
+- Fale só de experiência que está no currículo, sem inventar número, empresa ou resultado. Não deixe lacuna do tipo [nome].
+- Siga o briefing de tom. ${UNTRUSTED}
+Responda só com uma lista JSON: [{"name": nome completo, "role": cargo, "company": empresa, "profile_url": link do perfil, "why": uma linha dizendo por que esta pessoa, "invite_note": ..., "followup_message": ...}].`;
+  const objective = c.kind === "vaga"
+    ? `Objetivo: abordar quem contrata para a vaga "${c.jobTitle ?? c.area}" na empresa ${c.company}. Procure recrutador responsável ou gestor da área (${c.area}).`
+    : `Objetivo: conexão de rede com alguém da área "${c.area}" na empresa ${c.company}, sem vaga aberta.`;
+  const user = `${objective}\n<briefing_de_tom>\n${c.briefing}\n</briefing_de_tom>\n<vaga>\n${(c.jobDescription ?? "").slice(0, 3000)}\n</vaga>\n<curriculo>\n${c.resume.slice(0, MAX_RESUME_FOR_CONTENT)}\n</curriculo>`;
+
+  const res = await new Anthropic({ apiKey }).messages.create({
+    model: DEFAULT_MODEL, max_tokens: OUT_CONNECTIONS + 600, system,
+    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: MAX_SEARCHES }],
+    messages: [{ role: "user", content: user }],
+  });
+  const seen: string[] = [];
+  let text = "";
+  for (const b of res.content as unknown as { type: string; text?: string; content?: unknown }[]) {
+    if (b.type === "text") text += b.text ?? "";
+    if (b.type === "web_search_tool_result" && Array.isArray(b.content)) {
+      for (const r of b.content as { url?: string }[]) if (r?.url) seen.push(r.url);
+    }
+  }
+  const usage: ConnUsage = {
+    input: res.usage.input_tokens, output: res.usage.output_tokens,
+    searches: (res.usage as unknown as { server_tool_use?: { web_search_requests?: number } }).server_tool_use?.web_search_requests ?? 0,
+  };
+  let people: ReturnType<typeof parsePeople> = [];
+  try { people = parsePeople(text); } catch { people = []; }
+  return { ...verifyPeople(people, seen), usage, searchedUrls: seen.length };
 }

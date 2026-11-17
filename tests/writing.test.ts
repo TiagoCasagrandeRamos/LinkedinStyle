@@ -64,3 +64,40 @@ describe("radar", () => {
 describe("custo de texto", () => {
   it("soma sobrecarga fixa", () => expect(estimateText(0, 100)).toEqual({ input: 300, output: 100 }));
 });
+
+import { fitNote, parsePeople, profileKey, sanitizeText, verifyPeople, linkedinPeopleSearch } from "../src/lib/network";
+import { connectionsCost, estimateConnections } from "../src/lib/llm/cost";
+
+describe("rede", () => {
+  const pessoa = (o: object = {}) => ({ name: "Maria Souza", role: "Recrutadora", company: "Acme", profile_url: "https://br.linkedin.com/in/maria-souza/?trk=x", why: "Recrutadora de tecnologia", invite_note: "Oi Maria, vi a vaga de gestão de projetos na Acme e me candidatei. Posso te mandar um resumo do meu perfil?", followup_message: "Oi Maria, obrigado por aceitar.\nSou gestor de projetos e atuo com agile e CRM.\nPosso te mandar meu perfil resumido?", ...o });
+  it("tira travessão e emoji", () => expect(sanitizeText("Oi — tudo bem 😀?")).toBe("Oi, tudo bem ?"));
+  it("nota de convite cabe em 200 caracteres", () => {
+    expect(fitNote("curta")).toBe("curta");
+    const longa = "Primeira frase com bastante texto para passar do limite de tamanho do campo e seguir adiante. ".repeat(3);
+    const r = fitNote(longa)!;
+    expect(r.length).toBeLessThanOrEqual(200);
+    expect(r.endsWith(".")).toBe(true);
+    expect(fitNote("x".repeat(300))).toBeNull();
+  });
+  it("reconhece perfil público e normaliza o link", () => {
+    expect(profileKey("https://br.linkedin.com/in/Maria-Souza/?trk=x")).toBe("/in/maria-souza");
+    expect(profileKey("https://linkedin.com/company/acme")).toBeNull();
+    expect(profileKey("https://evil.com/in/maria")).toBeNull();
+  });
+  it("só aceita pessoas cujo link apareceu na busca", () => {
+    const r = verifyPeople([pessoa() as never, pessoa({ name: "João Inventado", profile_url: "https://www.linkedin.com/in/joao-inventado" }) as never], ["https://www.linkedin.com/in/maria-souza"]);
+    expect(r.people.map((p) => p.name)).toEqual(["Maria Souza"]);
+    expect(r.people[0].profile_url).toBe("https://www.linkedin.com/in/maria-souza");
+    expect(r.dropped).toHaveLength(1);
+  });
+  it("lê a lista e ignora itens inválidos", () => {
+    expect(parsePeople("x " + JSON.stringify([pessoa(), { name: "só nome" }]))).toHaveLength(1);
+    expect(parsePeople("nada")).toEqual([]);
+  });
+  it("o custo inclui as buscas na web", () => {
+    const u = estimateConnections(10000, 500, 3000);
+    expect(u.searches).toBe(3);
+    expect(connectionsCost(u)).toBeGreaterThan(0.03);
+  });
+  it("atalho de busca no LinkedIn", () => expect(linkedinPeopleSearch("Acme", "recrutador")).toContain("keywords=recrutador%20Acme"));
+});

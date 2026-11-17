@@ -8,7 +8,8 @@ import { normalizeWeights } from "@/lib/writing/traits";
 import { autorizarAvaliacao, buscarVagas, descartarPendentes } from "./actions";
 import { prepararCandidatura } from "../candidaturas/actions";
 import { nextSlots } from "@/lib/schedule";
-import { ConexoesTab, PostsTab, type PautaPillar } from "./social";
+import { ConexoesTab, PostsTab, type OutreachJob, type PautaPillar } from "./social";
+import { connectionsCost, estimateConnections } from "@/lib/llm/cost";
 import { fetchPillarNews } from "@/lib/news";
 import type { Pillar } from "@/lib/pillars";
 
@@ -42,6 +43,23 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
     const briefing = composeBriefing(normalizeWeights((cs?.writing_profile as { weights?: unknown } | null)?.weights), (cs?.avoid ?? []) as string[]);
     draftUsd = usageCost(estimateDraft(((rs?.[0]?.text_content as string | undefined) ?? "").length, briefing.length, 300));
   }
+  let outreachJobs: OutreachJob[] = [];
+  let connUsd = 0;
+  let minScore = 80;
+  const usedToday = { vaga: 0, rede: 0 };
+  if (aba === "conexoes") {
+    const { data: pr } = await sb.from("ls_job_preferences").select("min_score_outreach").eq("user_id", user.id).single();
+    minScore = pr?.min_score_outreach ?? 80;
+    const { data: oj } = await sb.from("ls_jobs").select("id, title, company, score").eq("user_id", user.id).gte("score", minScore).order("score", { ascending: false }).limit(20);
+    outreachJobs = (oj ?? []) as OutreachJob[];
+    const { data: rs } = await sb.from("ls_resumes").select("text_content").eq("user_id", user.id).not("confirmed_at", "is", null).limit(1);
+    const briefing = composeBriefing(normalizeWeights((cs?.writing_profile as { weights?: unknown } | null)?.weights), (cs?.avoid ?? []) as string[]);
+    connUsd = connectionsCost(estimateConnections(((rs?.[0]?.text_content as string | undefined) ?? "").length, briefing.length, 3000));
+    const brt = new Date(Date.now() - 3 * 3600 * 1000); brt.setUTCHours(0, 0, 0, 0);
+    const since = new Date(brt.getTime() + 3 * 3600 * 1000).toISOString();
+    const { data: today } = await sb.from("ls_connections").select("kind").eq("user_id", user.id).gte("created_at", since);
+    for (const t of today ?? []) usedToday[t.kind === "vaga" ? "vaga" : "rede"]++;
+  }
   let pauta: PautaPillar[] | null = null;
   if (aba === "posts" && pautaRaw === "1") {
     const lang = (cs?.languages ?? ["pt"])[0] === "en" ? "en" : "pt";
@@ -52,7 +70,7 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
   }
   const slots = nextSlots(cs?.post_days ?? [1, 3, 5], String(cs?.post_time ?? "09:00").slice(0, 5), 3);
   const { data: posts } = aba === "posts" ? await sb.from("ls_posts").select("id, title, body, pillar, language, status, scheduled_for").eq("user_id", user.id).order("created_at", { ascending: false }) : { data: [] };
-  const { data: conns } = aba === "conexoes" ? await sb.from("ls_connections").select("id, name, company, role, profile_url, note, status, follow_up_at").eq("user_id", user.id).order("created_at", { ascending: false }) : { data: [] };
+  const { data: conns } = aba === "conexoes" ? await sb.from("ls_connections").select("id, name, company, role, profile_url, note, status, follow_up_at, invite_note, followup_message, reason, kind").eq("user_id", user.id).order("created_at", { ascending: false }) : { data: [] };
 
   return (
     <>
@@ -66,7 +84,7 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
         ))}
       </nav>
       {aba === "posts" && <PostsTab posts={posts ?? []} slots={slots.map((d) => d.toISOString())} pillars={pillars} pauta={pauta} draftUsd={draftUsd} hasKey={Boolean(prof.llm_key_encrypted)} />}
-      {aba === "conexoes" && <ConexoesTab conns={conns ?? []} />}
+      {aba === "conexoes" && <ConexoesTab conns={(conns ?? []) as never} jobs={outreachJobs} connUsd={connUsd} hasKey={Boolean(prof.llm_key_encrypted)} minScore={minScore} usedToday={usedToday} />}
       {aba === "vagas" && <>
       <form action={buscarVagas}><button style={btn}>Buscar vagas (grátis)</button></form>
       <p style={{ color: "#aab2bd", fontSize: 14 }}>A busca não custa nada. A avaliação com o Claude é paga e só roda depois que você autorizar o valor.</p>
