@@ -46,9 +46,9 @@ export function estimateText(inputChars: number, outputTokens: number): Usage {
 }
 
 export const MAX_RESUME_FOR_CONTENT = 12000;
-export const OUT_PILLARS = 700;
+export const OUT_PILLARS = 1200;
 export const OUT_PREVIEW = 260;
-export const OUT_LEARN = 120;
+export const OUT_LEARN = 160;
 export const MAX_SAMPLE_CHARS = 6000;
 
 export const estimatePillars = (resumeChars: number, extraChars: number): Usage =>

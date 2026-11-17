@@ -45,3 +45,8 @@ export function parseSuggestions(raw: string) {
   if (!m) throw new Error("resposta sem lista");
   return suggestionSchema.parse(JSON.parse(m[0])).slice(0, 6);
 }
+
+/** Valida a lista que veio de uma chamada estruturada (tool use), sem depender de texto livre. */
+export function validateSuggestions(raw: unknown) {
+  return suggestionSchema.parse(raw).slice(0, 6);
+}
