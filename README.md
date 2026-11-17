@@ -64,3 +64,16 @@ In practice that is one click, with every field already filled.
 ## Status
 
 Early. See the issues for what is being built.
+
+## Running locally
+
+Next.js (PWA) + Supabase + Vercel. Tables use the `ls_` prefix, schema in `supabase/migrations`.
+
+```
+cp .env.example .env.local
+npm install
+npm run dev
+npm test
+```
+
+The app explains the "where it stops" decision in the UI too, at `/limites`.
