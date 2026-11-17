@@ -48,5 +48,28 @@ export function parseSuggestions(raw: string) {
 
 /** Valida a lista que veio de uma chamada estruturada (tool use), sem depender de texto livre. */
 export function validateSuggestions(raw: unknown) {
-  return suggestionSchema.parse(raw).slice(0, 6);
+  return suggestionSchema.parse(clipSuggestions(raw)).slice(0, 6);
+}
+
+/** Corta o texto no limite, na última palavra inteira. Texto um pouco longo não deve derrubar a sugestão. */
+export function clip(s: string, max: number): string {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max - 1);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[,;:\s]+$/, "") + "…";
+}
+
+function clipSuggestions(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return raw.map((x) => {
+    if (!x || typeof x !== "object") return x;
+    const o = x as Record<string, unknown>;
+    return {
+      name: typeof o.name === "string" ? clip(o.name, 40) : o.name,
+      description: typeof o.description === "string" ? clip(o.description, 200) : o.description,
+      origin: typeof o.origin === "string" ? clip(o.origin, 200) : o.origin,
+      keywords: Array.isArray(o.keywords) ? o.keywords.filter((k) => typeof k === "string").map((k) => clip(k as string, 40)).slice(0, 8) : o.keywords,
+    };
+  });
 }

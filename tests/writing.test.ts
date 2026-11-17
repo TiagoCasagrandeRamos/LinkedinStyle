@@ -101,3 +101,14 @@ describe("rede", () => {
   });
   it("atalho de busca no LinkedIn", () => expect(linkedinPeopleSearch("Acme", "recrutador")).toContain("keywords=recrutador%20Acme"));
 });
+
+import { clip, validateSuggestions } from "../src/lib/pillars";
+describe("sugestões longas", () => {
+  it("corta em vez de falhar", () => {
+    const longo = "palavra ".repeat(60);
+    const r = validateSuggestions([{ name: "IA", description: longo, keywords: ["ia"], origin: longo }]);
+    expect(r[0].origin.length).toBeLessThanOrEqual(200);
+    expect(r[0].description.length).toBeLessThanOrEqual(200);
+    expect(clip("curto", 10)).toBe("curto");
+  });
+});

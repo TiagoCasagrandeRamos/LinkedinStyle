@@ -30,7 +30,7 @@ export interface PillarContext { resume: string; titles: string[]; sectors: stri
 
 export async function suggestPillars(apiKey: string, c: PillarContext) {
   const system = `Você propõe de 4 a 6 pilares de conteúdo para os posts de LinkedIn de uma pessoa, a partir do currículo, dos cargos que ela busca e dos setores preferidos.
-Cada pilar tem: name (nome curto de até 3 palavras), description (uma linha sobre o que entra no pilar), keywords (de 3 a 6 palavras-chave para buscar notícias) e origin (de qual parte do currículo ou das preferências a ideia saiu, citando o cargo, a empresa ou a competência real).
+Cada pilar tem: name (nome curto de até 3 palavras), description (uma linha de até 150 caracteres sobre o que entra no pilar), keywords (de 3 a 6 palavras-chave para buscar notícias) e origin (até 150 caracteres: de qual parte do currículo ou das preferências a ideia saiu, citando o cargo, a empresa ou a competência real).
 Cada pilar precisa se apoiar em algo que está no currículo ou nas preferências. ${UNTRUSTED}`;
   const user = `<curriculo>\n${c.resume.slice(0, MAX_RESUME_FOR_CONTENT)}\n</curriculo>\n<cargos_buscados>${c.titles.join("; ")}</cargos_buscados>\n<setores_preferidos>${c.sectors.join("; ")}</setores_preferidos>`;
   const r = await askStructured(apiKey, system, user, OUT_PILLARS, {
