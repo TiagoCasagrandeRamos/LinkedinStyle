@@ -71,7 +71,7 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
             custo estimado <strong>{formatUsd(est.usd)}</strong> com o modelo {est.model}, cerca de {est.usage.input.toLocaleString("pt-BR")} tokens de entrada e {est.usage.output.toLocaleString("pt-BR")} de saída.
           </p>
           <p style={{ color: "#aab2bd", fontSize: 14 }}>Nada é cobrado até você tocar em autorizar. É estimativa: o custo real aparece depois da avaliação.</p>
-          {!prof.llm_key_encrypted && <p style={{ color: "#ffd180" }}>Cadastre a sua chave da API na etapa 4 do <Link href="/onboarding?etapa=3" style={{ color: "#6aa7e8" }}>onboarding</Link> antes de autorizar.</p>}
+          {!prof.llm_key_encrypted && <p style={{ color: "#ffd180" }}>Cadastre a sua chave da API na etapa 3 do <Link href="/onboarding?etapa=3" style={{ color: "#6aa7e8" }}>onboarding</Link> antes de autorizar.</p>}
           <form action={autorizarAvaliacao} style={{ display: "inline" }}>
             <input type="hidden" name="calls" value={est.willScore} />
             <input type="hidden" name="usd" value={est.usd.toFixed(6)} />
