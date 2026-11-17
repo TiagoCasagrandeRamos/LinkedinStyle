@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { DEFAULT_MODEL, MAX_RESUME_FOR_CONTENT, MAX_SAMPLE_CHARS, MAX_SEARCHES, OUT_CONNECTIONS, OUT_LEARN, OUT_PILLARS, OUT_PREVIEW, type ConnUsage, type Usage } from "./cost";
 import { parsePeople, sanitizeText, verifyPeople } from "../network";
+import { clipScript } from "../posts";
 import { validateSuggestions } from "../pillars";
 import { TRAIT_KEYS, normalizeWeights, type TraitWeights } from "../writing/traits";
 
@@ -167,7 +168,7 @@ Se houver fonte, o roteiro deve respeitar o que a fonte diz, sem afirmar além d
     } },
   });
   const o = r.input as { hook?: string; beats?: string[]; closing?: string; resume_data?: string[] };
-  return { script: { hook: sanitizeText(o.hook ?? ""), beats: (o.beats ?? []).map(sanitizeText), closing: sanitizeText(o.closing ?? ""), resume_data: (o.resume_data ?? []).map(sanitizeText) }, usage: r.usage };
+  return { script: clipScript({ hook: sanitizeText(o.hook ?? ""), beats: (o.beats ?? []).map(sanitizeText), closing: sanitizeText(o.closing ?? ""), resume_data: (o.resume_data ?? []).map(sanitizeText) }), usage: r.usage };
 }
 
 export async function generatePostText(apiKey: string, c: PostContext & { script: { hook: string; beats: string[]; closing: string; resume_data: string[] }; secondary: "pt" | "en" | null }) {

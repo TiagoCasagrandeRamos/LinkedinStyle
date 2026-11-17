@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sanitizeText } from "./network";
+import { clip } from "./pillars";
 
 export const STEPS = ["rascunho", "roteiro", "texto", "arte", "agendado", "publicado"] as const;
 export type Step = (typeof STEPS)[number];
@@ -9,11 +10,31 @@ export const prevStep = (s: Step): Step | null => STEPS[STEPS.indexOf(s) - 1] ??
 export const nextStep = (s: Step): Step | null => STEPS[STEPS.indexOf(s) + 1] ?? null;
 
 export const scriptSchema = z.object({
-  hook: z.string().trim().min(5).max(220),
-  beats: z.array(z.string().trim().min(3).max(220)).min(3).max(5),
-  closing: z.string().trim().min(5).max(220),
-  resume_data: z.array(z.string().trim().min(2).max(200)).max(6).default([]),
+  hook: z.string().trim().min(5).max(300),
+  beats: z.array(z.string().trim().min(3).max(300)).min(3).max(5),
+  closing: z.string().trim().min(5).max(300),
+  resume_data: z.array(z.string().trim().min(2).max(300)).max(6).default([]),
 });
+
+/** Ajusta o que o modelo devolveu aos limites: corta texto longo, limita beats e descarta itens vazios. */
+export function clipScript(raw: { hook?: string; beats?: string[]; closing?: string; resume_data?: string[] }) {
+  const list = (a?: string[]) => (a ?? []).filter((x) => typeof x === "string" && x.trim().length > 0);
+  return {
+    hook: clip(raw.hook ?? "", 300),
+    beats: list(raw.beats).slice(0, 5).map((b) => clip(b, 300)),
+    closing: clip(raw.closing ?? "", 300),
+    resume_data: list(raw.resume_data).slice(0, 6).map((d) => clip(d, 300)),
+  };
+}
+
+/** Diz o que faltou, em português, quando o roteiro não passa. */
+export function scriptProblem(raw: unknown): string | null {
+  const r = scriptSchema.safeParse(raw);
+  if (r.success) return null;
+  const f = r.error.issues[0];
+  const where = f.path[0] === "beats" ? "os beats" : f.path[0] === "hook" ? "o gancho" : f.path[0] === "closing" ? "o fechamento" : "os dados do currículo";
+  return `${where} ${f.path[0] === "beats" && f.code === "too_small" ? "vieram em menos de 3" : "não passaram na validação"}`;
+}
 export type Script = z.infer<typeof scriptSchema>;
 
 /** O texto só é liberado depois que a pessoa aprova o roteiro. */

@@ -89,3 +89,13 @@ describe("arte", () => {
     expect(sentences("Curta. Esta é uma frase boa para a arte. Outra frase boa também!")).toHaveLength(2);
   });
 });
+
+import { clipScript, scriptSchema } from "../src/lib/posts";
+describe("roteiro longo", () => {
+  it("corta em vez de recusar", () => {
+    const longo = "palavra ".repeat(80);
+    const r = clipScript({ hook: longo, beats: [longo, "dois", longo, "quatro beat", "cinco beat", "seis beat"], closing: longo, resume_data: [] });
+    expect(r.beats).toHaveLength(5);
+    expect(scriptSchema.safeParse(r).success).toBe(true);
+  });
+});

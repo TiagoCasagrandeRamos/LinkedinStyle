@@ -6,7 +6,7 @@ import { estimateScript, estimateTextGen, formatUsd, usageCost, type Usage } fro
 import { generatePostText, generateScript, type PostContext } from "@/lib/llm/generate";
 import { composeBriefing } from "@/lib/writing/briefing";
 import { normalizeWeights } from "@/lib/writing/traits";
-import { canGenerateText, POST_MAX, prevStep, scriptSchema, type Step } from "@/lib/posts";
+import { canGenerateText, POST_MAX, prevStep, scriptProblem, scriptSchema, type Step } from "@/lib/posts";
 import { zonedToUtc } from "@/lib/schedule";
 
 const back = (id: string, msg: string): never => redirect(`/posts/${id}?msg=${encodeURIComponent(msg)}`);
@@ -59,7 +59,7 @@ export async function gerarRoteiro(fd: FormData) {
   try {
     const r = await generateScript(decryptSecret(g.key!), g.ctx);
     const ok = scriptSchema.safeParse(r.script);
-    if (!ok.success) throw new Error("o roteiro veio fora do formato (gancho, 3 a 5 beats e fechamento). Tente de novo.");
+    if (!ok.success) throw new Error(`o roteiro veio incompleto: ${scriptProblem(r.script)}. Tente de novo.`);
     await sb.from("ls_posts").update({ script: ok.data, script_approved: false, status: "roteiro", failed: false, error: null }).eq("id", id).eq("user_id", user.id);
     back(id, `Roteiro pronto. Custo real: ${formatUsd(usageCost(r.usage))}. Edite e aprove para liberar o texto.`);
   } catch (e) { if (isRedirect(e)) throw e; await fail(sb, user.id, id, e); }
