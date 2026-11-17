@@ -1,3 +1,5 @@
+import { gerarRascunho } from "./draft-actions";
+import { formatUsd } from "@/lib/llm/cost";
 import { criarConexao, apagarConexao, apagarPost, criarPost, marcarPost, mudarConexao } from "./social-actions";
 
 type Post = { id: string; title: string | null; body: string; pillar: string | null; language: string; status: string; scheduled_for: string | null };
@@ -12,7 +14,7 @@ const STATUS_CONN: Record<string, string> = { para_abordar: "Para abordar", abor
 
 export type PautaPillar = { name: string; color: string; items: { title: string; link: string; source: string; date: string }[]; error?: string };
 
-export function PostsTab({ posts, slots, pillars, pauta }: { posts: Post[]; slots: string[]; pillars: string[]; pauta: PautaPillar[] | null }) {
+export function PostsTab({ posts, slots, pillars, pauta, draftUsd, hasKey }: { posts: Post[]; slots: string[]; pillars: string[]; pauta: PautaPillar[] | null; draftUsd: number; hasKey: boolean }) {
   return (
     <>
       <section style={card}>
@@ -40,6 +42,16 @@ export function PostsTab({ posts, slots, pillars, pauta }: { posts: Post[]; slot
           </>
         )}
       </section>
+      <form action={gerarRascunho} style={{ ...card, borderColor: "#2F6FB5" }}>
+        <strong>Gerar rascunho com o Claude</strong>
+        <p style={{ color: "#aab2bd", fontSize: 14 }}>Usa o seu perfil de escrita e o seu currículo. Nada é cobrado até você tocar no botão. É estimativa, o custo real aparece depois.</p>
+        <textarea name="topic" placeholder="Tema ou notícia (cole o título da pauta aqui)" rows={3} required style={input} />
+        <select name="pillar" style={input} defaultValue=""><option value="">Sem pilar</option>{pillars.map((p) => <option key={p}>{p}</option>)}</select>
+        <select name="language" style={input} defaultValue="pt"><option value="pt">Português</option><option value="en">English</option></select>
+        <input type="hidden" name="usd" value={draftUsd.toFixed(6)} />
+        <button style={btn} disabled={!hasKey}>Autorizar e gerar ({formatUsd(draftUsd)})</button>
+        {!hasKey && <p style={{ color: "#ffd180" }}>Cadastre a chave da API na etapa 3 do onboarding.</p>}
+      </form>
       <form action={criarPost} style={card}>
         <strong>Novo post</strong>
         <input name="title" placeholder="Título ou ideia" style={input} />

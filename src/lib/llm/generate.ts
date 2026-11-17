@@ -43,3 +43,13 @@ Responda só com um objeto JSON com os 8 traços como chaves e números inteiros
   if (!m) throw new Error("resposta sem JSON");
   return { weights: normalizeWeights(learnSchema.parse(JSON.parse(m[0]))), usage: r.usage };
 }
+
+export interface DraftInput { resume: string; briefing: string; pillar: string; pillarDescription: string; topic: string; language: "pt" | "en" }
+
+export async function draftPost(apiKey: string, d: DraftInput) {
+  const system = `Escreva um rascunho de post de LinkedIn de 80 a 180 palavras, na primeira pessoa, em ${d.language === "pt" ? "português do Brasil" : "inglês"}.
+Siga o briefing de tom à risca. Use só fatos do currículo e do tema informado, sem inventar números, empresas ou resultados. Se o tema for uma notícia, não afirme nada além do que o título diz. Responda só com o texto do post. ${UNTRUSTED}`;
+  const user = `<briefing_de_tom>\n${d.briefing}\n</briefing_de_tom>\n<pilar>${d.pillar}: ${d.pillarDescription}</pilar>\n<tema>\n${d.topic.slice(0, 1000)}\n</tema>\n<curriculo>\n${d.resume.slice(0, MAX_RESUME_FOR_CONTENT)}\n</curriculo>`;
+  const r = await ask(apiKey, system, user, 450);
+  return { text: r.text.trim(), usage: r.usage };
+}

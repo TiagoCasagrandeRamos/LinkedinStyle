@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireUser } from "@/lib/supabase/server";
 import { estimatePending, type Estimate } from "@/lib/pipeline/db";
-import { formatUsd } from "@/lib/llm/cost";
+import { estimateDraft, formatUsd, usageCost } from "@/lib/llm/cost";
+import { composeBriefing } from "@/lib/writing/briefing";
+import { normalizeWeights } from "@/lib/writing/traits";
 import { autorizarAvaliacao, buscarVagas, descartarPendentes } from "./actions";
 import { prepararCandidatura } from "../candidaturas/actions";
 import { nextSlots } from "@/lib/schedule";
@@ -31,9 +33,15 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
   const { data: apps } = await sb.from("ls_applications").select("id, job_id, status").eq("user_id", user.id);
   const appByJob = new Map((apps ?? []).map((a) => [a.job_id, a]));
 
-  const { data: cs } = await sb.from("ls_content_settings").select("pillars, post_days, post_time, languages").eq("user_id", user.id).single();
+  const { data: cs } = await sb.from("ls_content_settings").select("pillars, post_days, post_time, languages, writing_profile, avoid").eq("user_id", user.id).single();
   const pillarList = ((cs?.pillars ?? []) as Pillar[]).filter((p) => p?.name);
   const pillars = pillarList.map((p) => p.name);
+  let draftUsd = 0;
+  if (aba === "posts") {
+    const { data: rs } = await sb.from("ls_resumes").select("text_content").eq("user_id", user.id).not("confirmed_at", "is", null).limit(1);
+    const briefing = composeBriefing(normalizeWeights((cs?.writing_profile as { weights?: unknown } | null)?.weights), (cs?.avoid ?? []) as string[]);
+    draftUsd = usageCost(estimateDraft(((rs?.[0]?.text_content as string | undefined) ?? "").length, briefing.length, 300));
+  }
   let pauta: PautaPillar[] | null = null;
   if (aba === "posts" && pautaRaw === "1") {
     const lang = (cs?.languages ?? ["pt"])[0] === "en" ? "en" : "pt";
@@ -57,7 +65,7 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
           <Link key={k} href={`/painel?aba=${k}`} style={{ padding: "8px 14px", borderRadius: 6, textDecoration: "none", color: "#fff", background: aba === k ? "#2F6FB5" : "#2b3138" }}>{l}</Link>
         ))}
       </nav>
-      {aba === "posts" && <PostsTab posts={posts ?? []} slots={slots.map((d) => d.toISOString())} pillars={pillars} pauta={pauta} />}
+      {aba === "posts" && <PostsTab posts={posts ?? []} slots={slots.map((d) => d.toISOString())} pillars={pillars} pauta={pauta} draftUsd={draftUsd} hasKey={Boolean(prof.llm_key_encrypted)} />}
       {aba === "conexoes" && <ConexoesTab conns={conns ?? []} />}
       {aba === "vagas" && <>
       <form action={buscarVagas}><button style={btn}>Buscar vagas (grátis)</button></form>

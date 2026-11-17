@@ -56,3 +56,7 @@ export const estimatePillars = (resumeChars: number, extraChars: number): Usage 
 export const estimatePreview = (resumeChars: number, briefingChars: number): Usage =>
   estimateText(Math.min(resumeChars, MAX_RESUME_FOR_CONTENT) + briefingChars, OUT_PREVIEW);
 export const estimateLearn = (sampleChars: number): Usage => estimateText(Math.min(sampleChars, MAX_SAMPLE_CHARS) + 600, OUT_LEARN);
+
+export const OUT_DRAFT = 450;
+export const estimateDraft = (resumeChars: number, briefingChars: number, topicChars: number): Usage =>
+  estimateText(Math.min(resumeChars, MAX_RESUME_FOR_CONTENT) + briefingChars + Math.min(topicChars, 1000) + 400, OUT_DRAFT);
