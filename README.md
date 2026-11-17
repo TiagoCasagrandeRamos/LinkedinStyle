@@ -65,15 +65,13 @@ In practice that is one click, with every field already filled.
 
 Early. See the issues for what is being built.
 
-## Running locally
+## Running your own copy
 
-Next.js (PWA) + Supabase + Vercel. Tables use the `ls_` prefix, schema in `supabase/migrations`.
+1. Create a Supabase project and run the files in `supabase/migrations` in order (`0001`, `0002`). They create the `ls_*` tables with row level security and a private `resumes` bucket.
+2. `cp .env.example .env.local` and fill in the project URL and the publishable key.
+3. Generate the encryption key used for per-user secrets: `openssl rand -base64 32`, and set it as `TOKEN_ENCRYPTION_KEY`.
+4. `npm install && npm run dev`, then `npm test`.
 
-```
-cp .env.example .env.local
-npm install
-npm run dev
-npm test
-```
+No user data lives in this repo. Each person creates an account and goes through onboarding: resumes (Portuguese and/or English, validated by the user), job preferences and salary floor, blocked companies, content pillars and posting cadence, and their own API key. When an opening comes in, the app detects whether it is in English or Portuguese and picks the matching resume; with only one language on file it uses that one and says so.
 
 The app explains the "where it stops" decision in the UI too, at `/limites`.

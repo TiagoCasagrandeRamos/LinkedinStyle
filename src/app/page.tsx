@@ -10,6 +10,7 @@ export default function Home() {
         <li>Candidatura: o app monta o formulário inteiro e pergunta o que não souber.</li>
         <li>O envio final é sempre seu.</li>
       </ul>
+      <p><Link href="/login" style={{ color: "#6aa7e8" }}>Entrar ou criar conta</Link></p>
       <p><Link href="/limites" style={{ color: "#6aa7e8" }}>Por que o app não envia a candidatura sozinho</Link></p>
     </>
   );
