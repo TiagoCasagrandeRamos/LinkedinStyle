@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { supabaseServer } from "@/lib/supabase/server";
 
 async function entrar(formData: FormData) {
@@ -7,10 +8,13 @@ async function entrar(formData: FormData) {
   const email = String(formData.get("email"));
   const password = String(formData.get("password"));
   const mode = String(formData.get("mode"));
-  const { error } = mode === "signup"
-    ? await sb.auth.signUp({ email, password })
+  const h = await headers();
+  const origin = `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
+  const { data, error } = mode === "signup"
+    ? await sb.auth.signUp({ email, password, options: { emailRedirectTo: `${origin}/auth/callback` } })
     : await sb.auth.signInWithPassword({ email, password });
   if (error) redirect(`/login?erro=${encodeURIComponent(error.message)}`);
+  if (mode === "signup" && !data.session) redirect(`/login?erro=${encodeURIComponent("Conta criada. Confirme pelo link enviado ao seu e-mail e entre depois.")}`);
   redirect("/onboarding");
 }
 
