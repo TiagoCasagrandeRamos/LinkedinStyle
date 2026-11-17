@@ -97,3 +97,16 @@ Connect the repo to a Vercel project and set these variables:
 | `SUPABASE_SERVICE_ROLE_KEY` | Only the daily cron uses it. Server side only, never exposed |
 
 `vercel.json` schedules the collection once a day. On mobile, open the deployed URL and use "Add to Home Screen" to install it as a PWA.
+
+## Publicação automática no LinkedIn
+
+O app publica no seu perfil pela API oficial, só posts agendados que você autorizou um a um. Sem IA paga nessa etapa.
+
+1. Em developer.linkedin.com, crie um app (precisa de uma Página da empresa só para vincular; pode ser uma página vazia sua).
+2. Na aba Products, adicione **Sign In with LinkedIn using OpenID Connect** e **Share on LinkedIn** (os dois são liberados na hora).
+3. Na aba Auth, registre a Redirect URL: `https://SEU-DOMINIO/api/linkedin/callback`.
+4. No Vercel, crie as variáveis `LINKEDIN_CLIENT_ID` e `LINKEDIN_CLIENT_SECRET` (a segunda como sensível) e faça um novo deploy. `LINKEDIN_VERSION` é opcional (YYYYMM).
+5. No GitHub (Settings > Secrets > Actions), crie `APP_URL` (ex.: `https://linkedinstyle.vercel.app`) e `CRON_SECRET` (o mesmo valor do Vercel). O workflow `publicar.yml` chama o app a cada 10 minutos. O cron do Vercel Hobby só roda uma vez por dia, por isso o agendador fica no GitHub.
+6. Abra `/linkedin`, conecte e ligue a publicação automática. No passo de agendamento de cada post, escolha "Publicar sozinho" e marque a autorização.
+
+Limites: o acesso do LinkedIn vale 60 dias e não renova sozinho; reconecte antes de vencer. O app não publica se o texto tiver algo da lista de evitar, se a hora passou há mais de 6 horas, ou se a conexão expirou, e marca o post como falhou com o motivo.

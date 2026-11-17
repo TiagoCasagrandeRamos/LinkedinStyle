@@ -16,7 +16,7 @@ export async function proxy(req: NextRequest) {
     },
   });
   const { data } = await sb.auth.getUser();
-  if (!data.user && !PUBLIC.includes(req.nextUrl.pathname)) {
+  if (!data.user && !PUBLIC.includes(req.nextUrl.pathname) && !req.nextUrl.pathname.startsWith("/api/cron/")) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

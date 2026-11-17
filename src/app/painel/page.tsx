@@ -106,7 +106,7 @@ export default async function Painel({ searchParams }: { searchParams: Promise<{
         </section>
       )}
 
-      <p><Link href="/fontes" style={{ color: "#6aa7e8" }}>Fontes de vagas</Link> · <Link href="/onboarding?etapa=1" style={{ color: "#6aa7e8" }}>Revisar onboarding</Link></p>
+      <p><Link href="/fontes" style={{ color: "#6aa7e8" }}>Fontes de vagas</Link> · <Link href="/linkedin" style={{ color: "#6aa7e8" }}>LinkedIn</Link> · <Link href="/onboarding?etapa=1" style={{ color: "#6aa7e8" }}>Revisar onboarding</Link></p>
       <h2>Melhores vagas (até {limit})</h2>
       {(jobs ?? []).length === 0 && <p>Nenhuma vaga avaliada ainda. Cadastre uma fonte, busque e autorize a avaliação.</p>}
       {(jobs ?? []).map((j) => (

@@ -25,12 +25,15 @@ export default async function PostPage({ params, searchParams }: { params: Promi
   const { data: post } = await sb.from("ls_posts").select("*").eq("id", id).eq("user_id", user.id).maybeSingle();
   if (!post) redirect("/painel?aba=posts");
 
-  const [{ data: cs }, { data: rs }, { data: prof }, { data: sched }] = await Promise.all([
+  const [{ data: cs }, { data: rs }, { data: prof }, { data: sched }, { data: li }] = await Promise.all([
     sb.from("ls_content_settings").select("writing_profile, avoid, post_days, post_time, timezone").eq("user_id", user.id).maybeSingle(),
     sb.from("ls_resumes").select("text_content").eq("user_id", user.id).not("confirmed_at", "is", null).limit(1),
-    sb.from("ls_profiles").select("llm_key_encrypted").eq("user_id", user.id).single(),
+    sb.from("ls_profiles").select("llm_key_encrypted, auto_publish_enabled").eq("user_id", user.id).single(),
     sb.from("ls_posts").select("id, title, scheduled_for").eq("user_id", user.id).not("scheduled_for", "is", null).neq("id", id).gte("scheduled_for", new Date().toISOString()).order("scheduled_for"),
+    sb.from("ls_linkedin_auth").select("expires_at").eq("user_id", user.id).maybeSingle(),
   ]);
+  const liOk = !!li && new Date(li.expires_at) > new Date();
+  const autoOn = !!prof?.auto_publish_enabled;
   const tz = cs?.timezone ?? "America/Sao_Paulo";
   const avoid = (cs?.avoid ?? []) as string[];
   const briefing = composeBriefing(normalizeWeights((cs?.writing_profile as { weights?: unknown } | null)?.weights), avoid);
@@ -133,11 +136,23 @@ export default async function PostPage({ params, searchParams }: { params: Promi
             {sameDay.length > 0 && <p style={{ color: "#ffd180" }}>Já existe post nesse dia: {sameDay.map((p) => p.title).join(", ")}. Dois no mesmo dia dividem o alcance.</p>}
             <fieldset style={{ border: "1px solid #3a4048", borderRadius: 8, margin: "8px 0" }}>
               <legend>Publicação</legend>
-              <label><input type="radio" checked readOnly /> Esperar a minha aprovação final</label><br />
-              <label style={{ color: "#8b94a0" }}><input type="radio" disabled /> Publicar sozinho (indisponível: exige a conexão do LinkedIn por OAuth, que ainda não existe no app)</label>
+              <label><input type="radio" name="mode" value="manual" defaultChecked={!post.auto_publish} /> Esperar a minha aprovação final (eu publico e marco)</label><br />
+              {liOk ? (
+                <>
+                  <label><input type="radio" name="mode" value="auto" defaultChecked={!!post.auto_publish} /> Publicar sozinho no LinkedIn na hora marcada{post.art_path ? ", com a imagem da arte" : ", só texto"}</label>
+                  <div style={{ marginLeft: 22 }}>
+                    <label style={hint}><input type="checkbox" name="consent" defaultChecked={!!post.auto_publish} /> Li o texto abaixo e autorizo o app a publicar exatamente este conteúdo no meu perfil.</label>
+                    {!autoOn && <p style={{ color: "#ffd180", margin: "4px 0" }}>A publicação automática está desligada na página do LinkedIn. Ligue lá antes de agendar.</p>}
+                  </div>
+                </>
+              ) : (
+                <p style={hint}><a href="/linkedin" style={{ color: "#8ab4f8" }}>Conecte o LinkedIn</a> para liberar a opção de publicar sozinho.</p>
+              )}
             </fieldset>
             <button style={btn}>{step === "agendado" ? "Reagendar" : "Confirmar agendamento"}</button>
           </form>
+          {post.auto_publish && post.scheduled_for && <p style={{ color: "#7BD389" }}>Publicação automática marcada para {fmt(post.scheduled_for)}. Para cancelar, reagende em "Esperar a minha aprovação final" ou volte um passo.</p>}
+          <details style={{ margin: "8px 0" }}><summary style={hint}>Texto que será publicado</summary><pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{post.body}</pre></details>
           <h3>Agenda ocupada</h3>
           {(sched ?? []).length === 0 ? <p style={hint}>Nenhum outro post agendado.</p> : <ul>{(sched ?? []).map((p) => <li key={p.id}>{fmt(p.scheduled_for as string)}: {p.title}</li>)}</ul>}
           <p style={hint}>Próximos horários livres pela sua cadência: {free.length ? free.map((d) => fmt(d.toISOString())).join(" · ") : "defina dias e horário no onboarding"}.</p>
@@ -146,7 +161,7 @@ export default async function PostPage({ params, searchParams }: { params: Promi
           )}
         </section>
       )}
-      {step === "publicado" && <p style={{ color: "#7BD389" }}>Publicado{post.published_at ? ` em ${fmt(post.published_at)}` : ""}.</p>}
+      {step === "publicado" && <p style={{ color: "#7BD389" }}>Publicado{post.published_at ? ` em ${fmt(post.published_at)}` : ""}.{post.published_url && <> <a href={post.published_url} style={{ color: "#8ab4f8" }}>Ver no LinkedIn</a></>}</p>}
     </>
   );
 }

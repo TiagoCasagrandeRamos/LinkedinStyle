@@ -6,7 +6,7 @@ import { estimateScript, estimateTextGen, formatUsd, usageCost, type Usage } fro
 import { generatePostText, generateScript, type PostContext } from "@/lib/llm/generate";
 import { composeBriefing } from "@/lib/writing/briefing";
 import { normalizeWeights } from "@/lib/writing/traits";
-import { canGenerateText, POST_MAX, prevStep, scriptProblem, scriptSchema, type Step } from "@/lib/posts";
+import { canGenerateText, POST_MAX, prevStep, scanAvoid, scriptProblem, scriptSchema, type Step } from "@/lib/posts";
 import { zonedToUtc } from "@/lib/schedule";
 
 const back = (id: string, msg: string): never => redirect(`/posts/${id}?msg=${encodeURIComponent(msg)}`);
@@ -99,18 +99,20 @@ export async function gerarTexto(fd: FormData) {
 }
 
 export async function salvarTexto(fd: FormData) {
-  const { sb, user, id } = await load(fd);
+  const { sb, user, id, post } = await load(fd);
   const body = String(fd.get("body") ?? "").slice(0, POST_MAX);
   const second = String(fd.get("body_secondary") ?? "").slice(0, POST_MAX);
-  await sb.from("ls_posts").update({ body, body_secondary: second || null }).eq("id", id).eq("user_id", user.id);
-  back(id, "Texto salvo.");
+  const changed = body !== post.body;
+  // mudou o texto: a autorização de publicar sozinho valia para o texto anterior
+  await sb.from("ls_posts").update({ body, body_secondary: second || null, ...(changed && post.auto_publish ? { auto_publish: false } : {}) }).eq("id", id).eq("user_id", user.id);
+  back(id, changed && post.auto_publish ? "Texto salvo. A publicação automática foi desligada porque o texto mudou: confirme o agendamento de novo." : "Texto salvo.");
 }
 
 export async function escolherArte(fd: FormData) {
   const { sb, user, id, post } = await load(fd);
   if (!post.body) back(id, "Gere o texto antes da arte.");
   const phrase = String(fd.get("phrase") ?? "").trim().slice(0, 200);
-  await sb.from("ls_posts").update({ art_phrase: phrase || null, status: "arte" }).eq("id", id).eq("user_id", user.id);
+  await sb.from("ls_posts").update({ art_phrase: phrase || null, status: "arte", auto_publish: false, ...(phrase ? {} : { art_path: null }) }).eq("id", id).eq("user_id", user.id);
   back(id, phrase ? "Arte definida. Baixe a imagem e siga para o agendamento." : "Arte pulada. Siga para o agendamento.");
 }
 
@@ -122,8 +124,24 @@ export async function agendar(fd: FormData) {
   const g = await genContext(sb, user.id, post);
   const when = zonedToUtc(+m![1], +m![2] - 1, +m![3], +m![4], +m![5], g.tz);
   if (when.getTime() < Date.now()) back(id, "Essa data já passou.");
-  await sb.from("ls_posts").update({ scheduled_for: when.toISOString(), status: "agendado", approval: "manual" }).eq("id", id).eq("user_id", user.id);
-  back(id, "Agendado. O app não publica sozinho: na hora, copie o texto e publique no LinkedIn, depois marque como publicado.");
+  const auto = fd.get("mode") === "auto";
+  if (auto) {
+    if (fd.get("consent") !== "on") back(id, "Marque a caixa de autorização para o app publicar este texto sozinho.");
+    const [{ data: li }, { data: prof }, { data: cs }] = await Promise.all([
+      sb.from("ls_linkedin_auth").select("expires_at").eq("user_id", user.id).maybeSingle(),
+      sb.from("ls_profiles").select("auto_publish_enabled").eq("user_id", user.id).maybeSingle(),
+      sb.from("ls_content_settings").select("avoid").eq("user_id", user.id).maybeSingle(),
+    ]);
+    if (!li || new Date(li.expires_at) <= new Date()) back(id, "Conecte o LinkedIn antes (menu LinkedIn).");
+    if (!prof?.auto_publish_enabled) back(id, "A publicação automática está desligada. Ligue na página do LinkedIn.");
+    if (new Date(li!.expires_at) < when) back(id, "O acesso ao LinkedIn expira antes dessa data. Reconecte depois ou escolha uma data anterior.");
+    const hits = scanAvoid(post.body, (cs?.avoid ?? []) as string[]).hits.length;
+    if (hits > 0) back(id, `O texto tem ${hits} ocorrência(s) do que você pediu para evitar. Corrija antes de liberar a publicação automática.`);
+  }
+  await sb.from("ls_posts").update({ scheduled_for: when.toISOString(), status: "agendado", approval: "manual", auto_publish: auto, failed: false, error: null, publishing_started_at: null }).eq("id", id).eq("user_id", user.id);
+  back(id, auto
+    ? "Agendado com publicação automática. O texto exibido agora é o que sai: se editar, confirme de novo."
+    : "Agendado. O app não publica sozinho: na hora, copie o texto e publique no LinkedIn, depois marque como publicado.");
 }
 
 export async function marcarPublicadoPost(fd: FormData) {
@@ -138,6 +156,6 @@ export async function voltarPasso(fd: FormData) {
   const { sb, user, id, post } = await load(fd);
   const p = prevStep(post.status as Step);
   if (!p) back(id, "Já está no primeiro passo.");
-  await sb.from("ls_posts").update({ status: p, failed: false, error: null }).eq("id", id).eq("user_id", user.id);
+  await sb.from("ls_posts").update({ status: p, failed: false, error: null, auto_publish: false }).eq("id", id).eq("user_id", user.id);
   back(id, "Voltou um passo. O que você já aprovou continua guardado.");
 }
