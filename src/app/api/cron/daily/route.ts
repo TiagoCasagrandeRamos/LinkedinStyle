@@ -1,9 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { runUserPipeline } from "@/lib/pipeline/db";
+import { collectPending } from "@/lib/pipeline/db";
 
 export const maxDuration = 300;
 
+/**
+ * Coleta diária. Só busca e filtra vagas, de graça. A avaliação com o Claude
+ * é paga e só roda quando o usuário autoriza o valor no painel.
+ */
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
@@ -14,12 +18,12 @@ export async function GET(req: Request) {
   if (!service) return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY ausente" }, { status: 500 });
   const sb = createClient(url, service, { auth: { persistSession: false } });
 
-  const { data: users } = await sb.from("ls_profiles").select("user_id").not("onboarding_completed_at", "is", null).not("llm_key_encrypted", "is", null);
+  const { data: users } = await sb.from("ls_profiles").select("user_id").not("onboarding_completed_at", "is", null);
   const summary: Record<string, string> = {};
   for (const u of users ?? []) {
     try {
-      const r = await runUserPipeline(sb, u.user_id);
-      summary[u.user_id] = `${r.stored} novas, ${r.sourceErrors.length} erros de fonte`;
+      const r = await collectPending(sb, u.user_id);
+      summary[u.user_id] = `${r.stored} vagas novas aguardando autorização, ${r.sourceErrors.length} erros de fonte`;
     } catch (e) {
       summary[u.user_id] = `falhou: ${(e as Error).message}`;
     }

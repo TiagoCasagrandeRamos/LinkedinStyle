@@ -1,22 +1,14 @@
-import { detectJobLanguage, type Lang } from "../language";
+import { detectJobLanguage, type Lang, type LangResult } from "../language";
 import { dedupe } from "../normalize";
 import { pickResume } from "../resume/pick";
 import { scoreJob, isBlocked } from "../scoring/score";
+import { sumUsage, type Usage } from "../llm/cost";
 import type { FitScorer } from "../llm/requirements";
 import type { JobPrefs, NormalizedJob, Weights } from "../types";
 
 export interface ResumeInput { id: string; language: Lang; text: string }
 
-export interface ProcessInput {
-  jobs: NormalizedJob[];
-  prefs: JobPrefs;
-  weights: Weights;
-  resumes: ResumeInput[];
-  knownKeys: Set<string>;
-  scorer: FitScorer;
-  /** Teto de chamadas ao LLM por rodada, para o custo ficar previsível. */
-  maxLlmCalls?: number;
-}
+export interface Candidate { job: NormalizedJob; lang: LangResult; titleRatio: number }
 
 export interface ScoredRow {
   job: NormalizedJob;
@@ -27,10 +19,8 @@ export interface ScoredRow {
   justification: string[];
 }
 
-export interface ProcessReport {
-  rows: ScoredRow[];
-  skipped: { known: number; blocked: number; offTitle: number; overLimit: number };
-}
+/** Teto de avaliações por rodada, para o custo ficar previsível. */
+export const MAX_LLM_CALLS = 40;
 
 const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
@@ -53,34 +43,71 @@ function seniorityFit(job: NormalizedJob, prefs: JobPrefs, ratio: number): numbe
   return Math.min(1, 0.6 * ratio + 0.4 * (senHit ? 1 : 0.3));
 }
 
-export async function processJobs(inp: ProcessInput): Promise<ProcessReport> {
-  const skipped = { known: 0, blocked: 0, offTitle: 0, overLimit: 0 };
+/** Fase gratuita: filtra e detecta o idioma. Não chama o LLM. */
+export function selectCandidates(jobs: NormalizedJob[], prefs: JobPrefs, knownKeys: Set<string>) {
+  const skipped = { known: 0, blocked: 0, offTitle: 0 };
+  const candidates: Candidate[] = [];
+  for (const job of dedupe(jobs)) {
+    if (knownKeys.has(job.dedupeKey)) { skipped.known++; continue; }
+    if (isBlocked(job.company, prefs.blockedCompanies)) { skipped.blocked++; continue; }
+    const titleRatio = titleMatch(job.title, prefs.titles);
+    if (titleRatio < 0.5) { skipped.offTitle++; continue; }
+    candidates.push({ job, lang: detectJobLanguage(job.title, job.description), titleRatio });
+  }
+  return { candidates, skipped };
+}
+
+export interface ScoreInput {
+  candidates: Candidate[];
+  prefs: JobPrefs;
+  weights: Weights;
+  resumes: ResumeInput[];
+  scorer: FitScorer;
+  maxLlmCalls?: number;
+}
+
+/** Fase paga: uma chamada ao LLM por vaga, com teto. */
+export async function scoreCandidates(inp: ScoreInput) {
   const rows: ScoredRow[] = [];
+  const usages: Usage[] = [];
+  let overLimit = 0;
   let calls = 0;
-  const max = inp.maxLlmCalls ?? 40;
+  const max = inp.maxLlmCalls ?? MAX_LLM_CALLS;
 
-  for (const job of dedupe(inp.jobs)) {
-    if (inp.knownKeys.has(job.dedupeKey)) { skipped.known++; continue; }
-    if (isBlocked(job.company, inp.prefs.blockedCompanies)) { skipped.blocked++; continue; }
-    const ratio = titleMatch(job.title, inp.prefs.titles);
-    if (ratio < 0.5) { skipped.offTitle++; continue; }
-    if (calls >= max) { skipped.overLimit++; continue; }
-
-    const lang = detectJobLanguage(job.title, job.description);
-    const pick = pickResume(inp.resumes.map((r) => ({ id: r.id, language: r.language })), lang.lang);
+  for (const c of inp.candidates) {
+    if (calls >= max) { overLimit++; continue; }
+    const pick = pickResume(inp.resumes.map((r) => ({ id: r.id, language: r.language })), c.lang.lang);
     const resume = inp.resumes.find((r) => r.id === pick.resume?.id);
-    if (!resume) { skipped.overLimit++; continue; }
+    if (!resume) { overLimit++; continue; }
 
     calls++;
-    const fit = await inp.scorer(job.title, job.description, resume.text);
+    const fit = await inp.scorer(c.job.title, c.job.description, resume.text);
+    if (fit.usage) usages.push(fit.usage);
     const s = scoreJob({
-      job, prefs: inp.prefs, weights: inp.weights,
+      job: c.job, prefs: inp.prefs, weights: inp.weights,
       requirementsFit: fit.fit, requirementsReason: fit.reason,
-      seniorityAreaFit: seniorityFit(job, inp.prefs, ratio),
+      seniorityAreaFit: seniorityFit(c.job, inp.prefs, c.titleRatio),
     });
-    s.justification.push(`idioma da vaga: ${lang.lang} (confiança ${lang.confidence}). ${pick.note}`);
-    rows.push({ job, language: lang.lang, languageConfidence: lang.confidence, total: s.total, parts: s.parts, justification: s.justification });
+    s.justification.push(`idioma da vaga: ${c.lang.lang} (confiança ${c.lang.confidence}). ${pick.note}`);
+    rows.push({ job: c.job, language: c.lang.lang, languageConfidence: c.lang.confidence, total: s.total, parts: s.parts, justification: s.justification });
   }
   rows.sort((a, b) => b.total - a.total);
-  return { rows, skipped };
+  return { rows, overLimit, usage: sumUsage(usages) };
+}
+
+export interface ProcessInput {
+  jobs: NormalizedJob[];
+  prefs: JobPrefs;
+  weights: Weights;
+  resumes: ResumeInput[];
+  knownKeys: Set<string>;
+  scorer: FitScorer;
+  maxLlmCalls?: number;
+}
+
+/** As duas fases juntas. Usado em testes; o app separa as fases para pedir autorização. */
+export async function processJobs(inp: ProcessInput) {
+  const { candidates, skipped } = selectCandidates(inp.jobs, inp.prefs, inp.knownKeys);
+  const r = await scoreCandidates({ ...inp, candidates });
+  return { rows: r.rows, skipped: { ...skipped, overLimit: r.overLimit }, usage: r.usage };
 }

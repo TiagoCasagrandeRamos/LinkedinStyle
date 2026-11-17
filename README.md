@@ -65,6 +65,10 @@ In practice that is one click, with every field already filled.
 
 Early. See the issues for what is being built.
 
+## Cost control
+
+Searching and filtering openings is free. Scoring with Claude is paid, so the app splits the two: it shows an estimated cost (tokens and USD, from the model's published price) and runs only after the user authorizes that amount. If the estimate changes before the run, it cancels and asks again. The daily cron only collects, it never calls the model. After each run the app shows the real cost reported by the API.
+
 ## Running your own copy
 
 1. Create a Supabase project and run the files in `supabase/migrations` in order (`0001`, `0002`). They create the `ls_*` tables with row level security and a private `resumes` bucket.

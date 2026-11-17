@@ -144,7 +144,7 @@ function Conexoes() {
         <label>Chave da API da Anthropic (usada para pontuar vagas e ler formulários)
           <input style={S.input} name="llmKey" type="password" autoComplete="off" placeholder="sk-ant-..." />
         </label>
-        <p style={S.hint}>Fica criptografada no banco, só você usa. Pode deixar em branco agora, mas a nota de requisitos só funciona com ela.</p>
+        <p style={S.hint}>Fica criptografada no banco, só você usa. Pode deixar em branco agora, mas a nota de requisitos só funciona com ela. Antes de cada avaliação o app mostra o custo estimado e só executa depois que você autorizar.</p>
         <fieldset style={S.card}><legend>LinkedIn (opcional)</legend>
           <p>A conexão por OAuth entra na próxima versão. Por enquanto você pode colar links de vagas do LinkedIn para o app listar e pontuar.</p>
         </fieldset>

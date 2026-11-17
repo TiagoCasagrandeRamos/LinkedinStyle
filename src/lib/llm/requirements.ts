@@ -1,10 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { DEFAULT_MODEL, type Usage } from "./cost";
 
 export interface FitResult {
   /** 0 a 1 */
   fit: number;
   reason: string;
+  /** Tokens realmente gastos na chamada, informados pela API. */
+  usage?: Usage;
 }
 
 export type FitScorer = (jobTitle: string, jobDescription: string, resumeText: string) => Promise<FitResult>;
@@ -21,7 +24,7 @@ export function parseFit(raw: string): FitResult {
   return outSchema.parse(JSON.parse(m[0]));
 }
 
-export function makeClaudeScorer(apiKey: string, model = "claude-haiku-5-5"): FitScorer {
+export function makeClaudeScorer(apiKey: string, model = DEFAULT_MODEL): FitScorer {
   const client = new Anthropic({ apiKey });
   return async (title, description, resume) => {
     const res = await client.messages.create({
@@ -34,11 +37,12 @@ export function makeClaudeScorer(apiKey: string, model = "claude-haiku-5-5"): Fi
       }],
     });
     const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+    const usage = { input: res.usage.input_tokens, output: res.usage.output_tokens };
     try {
-      return parseFit(text);
+      return { ...parseFit(text), usage };
     } catch {
       // Sem chute: se a resposta não for válida, a nota de requisitos fica zerada e explicada.
-      return { fit: 0, reason: "não foi possível avaliar os requisitos desta vaga (resposta inválida do modelo)" };
+      return { fit: 0, reason: "não foi possível avaliar os requisitos desta vaga (resposta inválida do modelo)", usage };
     }
   };
 }
